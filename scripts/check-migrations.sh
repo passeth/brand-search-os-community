@@ -41,4 +41,5 @@ do $$begin
 end$$;
 reset role;
 SQL
-printf 'Fresh migrations and member isolation passed.\n'
+"${psql_cmd[@]}" -q -f tests/workflows.sql
+printf 'Fresh migrations, membership, keywords, content versions, worker deduplication, failure isolation, Google property guards and quotas passed.\n' 

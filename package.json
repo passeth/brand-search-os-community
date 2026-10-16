@@ -1,6 +1,6 @@
 {
   "name": "brand-search-os",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,9 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "setup:check": "node --import tsx scripts/check-setup.ts",
-    "setup:secrets": "node scripts/setup-secrets.mjs"
+    "setup:secrets": "node scripts/setup-secrets.mjs",
+    "test:local": "node --import tsx scripts/local-smoke.ts",
+    "test:db": "bash scripts/check-migrations.sh"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.98",

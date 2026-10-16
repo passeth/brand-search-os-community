@@ -35,3 +35,9 @@ test('secret helper creates keys without printing them and preserves both keys o
   assert.equal(readFileSync(join(dir,'.env.local'),'utf8'),content);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('local Supabase is allowed only on loopback HTTP addresses',()=>{
+ assert.deepEqual(publicSetupIssues({...publicEnv,NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:54321'}),[]);
+ assert.equal(publicSetupIssues({...publicEnv,NEXT_PUBLIC_SUPABASE_URL:'http://remote.example.com'}).length,1);
+ assert.equal(publicSetupIssues({...publicEnv,NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1.attacker.test'}).length,1);
+});

@@ -4,8 +4,9 @@ export function publicSetupIssues(env: Env): string[] {
  const issues:string[]=[];
  try {
   const url=new URL(env.NEXT_PUBLIC_SUPABASE_URL||'');
-  if(url.protocol!=='https:' || url.username || url.password || url.pathname!=='/' || url.search || url.hash || ['your-project.supabase.co','example.supabase.co'].includes(url.hostname)) throw new Error();
- } catch { issues.push('NEXT_PUBLIC_SUPABASE_URL에 자신의 Supabase HTTPS 프로젝트 주소를 입력하세요.'); }
+  const local=['localhost','127.0.0.1','[::1]'].includes(url.hostname);
+  if((url.protocol!=='https:' && !(url.protocol==='http:'&&local)) || url.username || url.password || url.pathname!=='/' || url.search || url.hash || ['your-project.supabase.co','example.supabase.co'].includes(url.hostname)) throw new Error();
+ } catch { issues.push('NEXT_PUBLIC_SUPABASE_URL에 자신의 Supabase HTTPS 주소(로컬은 http://127.0.0.1:54321)를 입력하세요.'); }
  const key=env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY||'';
  let anon=false;
  try { anon=JSON.parse(atob(key.split('.')[1])).role==='anon'; } catch {}

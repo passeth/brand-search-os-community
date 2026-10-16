@@ -1,3 +1,11 @@
+# 베타 검증 추가 기록 — 2026-10-17
+
+34개 단위 테스트, production 빌드와 TypeScript 검사 통과. 전체 마이그레이션을 임시 로컬 PostgreSQL에 적용하고 새 브랜드 키워드 동기화, 편집 상태 유지, 예약 작업 중복 방지·성공/실패 처리, 콘텐츠 버전, Google 속성 변경·연결 해제 및 quota 검사를 통과했습니다.
+
+현재 작업 컴퓨터에는 Docker가 없어 Supabase 전체 로컬 스택은 시작되지 않았습니다. 동일 검사를 재현할 로컬 설정과 GitHub Actions의 임시 로컬 Auth/API 검사를 추가했습니다. 실행별 결과는 [Actions](https://github.com/passeth/brand-search-os-community/actions/workflows/beta-check.yml)를 확인하세요. [베타 범위](BETA.md)에 테스트와 외부 설치 확인을 구분했습니다. 클라우드 프로젝트나 외부 API 비용을 발생시키지 않았습니다.
+
+---
+
 # 공유판 검증 범위
 
 2026-10-16 기준, 독립 설치용 소스 검증 기록입니다.

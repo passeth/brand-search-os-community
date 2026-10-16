@@ -1,0 +1,10 @@
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {parseEnv} from 'node:util';
+import {randomBytes} from 'node:crypto';
+const env=parseEnv(readFileSync('.env.supabase.local','utf8'));
+const url=new URL(env.API_URL||'');
+if(url.protocol!=='http:'||!['localhost','127.0.0.1'].includes(url.hostname))throw new Error('Only disposable local Supabase is allowed');
+if(!env.ANON_KEY||!env.SERVICE_ROLE_KEY)throw new Error('Missing local Supabase keys');
+if(existsSync('.env.local'))throw new Error('Refusing to overwrite .env.local; use a clean test checkout');
+writeFileSync('.env.local',`NEXT_PUBLIC_SUPABASE_URL=${url.origin}\nNEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${env.ANON_KEY}\nAPP_URL=http://127.0.0.1:3000\nCRON_SECRET=${randomBytes(32).toString('hex')}\n`,{mode:0o600});
+console.log('Prepared disposable local test configuration (no keys printed).');

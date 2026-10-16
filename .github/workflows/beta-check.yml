@@ -1,0 +1,47 @@
+name: Beta installation checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build without configuration
+        run: npm run build
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.116.0
+      - name: Start disposable local Supabase
+        run: supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,mailpit
+      - name: Prepare isolated configuration
+        run: |
+          umask 077
+          supabase status -o env > .env.supabase.local
+          node scripts/prepare-local-test.mjs
+          npm run setup:check
+      - run: npm run build && npm run typecheck
+      - name: Exercise real local Auth and Next API
+        run: |
+          npm run start > /tmp/search-os-app.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/ -o /dev/null; then break; fi
+            sleep 1
+          done
+          npm run test:local
+      - name: Stop local services
+        if: always()
+        run: supabase stop --no-backup
