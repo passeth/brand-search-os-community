@@ -42,4 +42,4 @@ end$$;
 reset role;
 SQL
 "${psql_cmd[@]}" -q -f tests/workflows.sql
-printf 'Fresh migrations, membership, keywords, content versions, worker deduplication, failure isolation, Google property guards and quotas passed.\n' 
+printf 'Fresh migrations, membership, keywords, content versions, worker deduplication, failure isolation, Google property guards and quotas passed.\n'

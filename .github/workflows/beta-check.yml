@@ -24,7 +24,7 @@ jobs:
         with:
           version: 2.116.0
       - name: Start disposable local Supabase
-        run: supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,mailpit
+        run: supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,mailpit > /tmp/search-os-supabase.log 2>&1
       - name: Prepare isolated configuration
         run: |
           umask 077
