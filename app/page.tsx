@@ -2,6 +2,7 @@
 import {useEffect,useState,useRef, useCallback} from 'react';
 import {ArrowUpRight,ArrowRight,Plus,Search,LayoutDashboard,Globe2,ListChecks,MessageSquareText,Layers3,Check,LogOut,RefreshCw,Download,ShieldCheck,Target,FileText,ExternalLink,X,LoaderCircle,AlertCircle,Command,Activity,Sparkles} from 'lucide-react';
 import {db} from '@/lib/supabase';
+import {publicSetupIssues} from '@/lib/setup';
 import {LoginCard} from './login-card';
 import {MonitorWorkspace} from './monitor-workspace';
 import {WorkflowWorkspace} from './workflow-workspace';
@@ -11,7 +12,7 @@ import type {Prompt} from '@/lib/monitoring';
 import {BrandOrbit} from './brand-orbit';
 import type {Brand,Audit,Task,Observation} from '@/lib/types';
 import type {Session} from '@supabase/supabase-js';
-const client=db();
+
 const nav=[['overview','대시보드',LayoutDashboard,'현황'],['keywords','키워드 현황',Search,'분석'],['keyword-analysis','키워드 분석',Activity,'분석'],['prompts','프롬프트 현황',MessageSquareText,'분석'],['prompt-analysis','프롬프트 분석',Target,'분석'],['strategy-map','전략맵',Layers3,'전략'],['audit','사이트 진단',ShieldCheck,'전략'],['factory','콘텐츠 제작소',FileText,'실행'],['optimize','콘텐츠 최적화',Sparkles,'실행'],['exports','콘텐츠 내보내기',Download,'실행'],['monitoring','모니터링 대시보드',Activity,'모니터링'],['weekly','주간 리포트',FileText,'모니터링'],['personas','페르소나',Command,'기타'],['knowledge','자료실',Layers3,'기타'],['raw-data','Raw 데이터',Download,'기타'],['brands','브랜드 관리',Globe2,'운영'],['tasks','개선 과제',ListChecks,'운영'],['strategy','4주 실행안',FileText,'운영'],['guide','운영 방법',ShieldCheck,'운영']] as const;
 const workflowViews=['keywords','keyword-analysis','strategy-map','factory','optimize','exports','personas','knowledge','raw-data'];
 const monitorSections:Record<string,string>={prompts:'questions','prompt-analysis':'comparison',monitoring:'schedule',weekly:'report',guide:'guide'};
@@ -24,6 +25,12 @@ function Meter({value,label}:{value:number|undefined,label:string}) {
  </div>;
 }
 export default function Home(){
+ const issues=publicSetupIssues({NEXT_PUBLIC_SUPABASE_URL:process.env.NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY});
+ if(issues.length)return <main className="panel padded" style={{maxWidth:800,margin:'48px auto'}}><h1>첫 설치 설정이 필요합니다</h1><p>앱을 시작하려면 아래 설정을 먼저 완료하세요. 아직 데이터베이스에 연결하지 않았습니다.</p><ul>{issues.map(issue=><li key={issue}>{issue}</li>)}</ul><ol><li>저장소의 .env.example을 .env.local로 복사하고 자신의 프로젝트 값을 입력하세요.</li><li>npm run setup:check로 설정을 점검하세요.</li><li>개발 서버를 다시 시작하세요. Vercel에서는 환경변수 저장 후 재배포하세요.</li></ol><a href="https://github.com/passeth/brand-search-os-community/blob/main/docs/SETUP.md" target="_blank" rel="noreferrer">설치 가이드 열기</a><p>설정을 완료하면 이메일 로그인 화면이 표시됩니다. 비밀키를 공개 변수에 넣지 마세요.</p></main>;
+ return <Workspace/>;
+}
+function Workspace(){
+ const [client]=useState(()=>db());
  const [session,setSession]=useState<Session|null>(null),[ready,setReady]=useState(false),[member,setMember]=useState(false),[membershipReady,setMembershipReady]=useState(false),[view,setView]=useState('overview'),[brands,setBrands]=useState<Brand[]>([]),[selected,setSelected]=useState(''),[audits,setAudits]=useState<Audit[]>([]),[tasks,setTasks]=useState<Task[]>([]),[observations,setObservations]=useState<Observation[]>([]),[strategy,setStrategy]=useState(''),[busy,setBusy]=useState(''),[notice,setNotice]=useState(''),[editing,setEditing]=useState(''),[modal,setModal]=useState(false),[query,setQuery]=useState(''),[statusFilter,setStatusFilter]=useState('all');
  const [prompts,setPrompts]=useState<Prompt[]>([]),[dataRevision,setDataRevision]=useState(0);
  const brandDialog=useRef<HTMLDialogElement>(null);

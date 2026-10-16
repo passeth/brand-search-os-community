@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "test": "node --import tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "setup:check": "node --import tsx scripts/check-setup.ts",
+    "setup:secrets": "node scripts/setup-secrets.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.98",
@@ -28,5 +30,8 @@
     "@types/react-dom": "latest",
     "tsx": "latest",
     "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=22.6.0"
   }
 }

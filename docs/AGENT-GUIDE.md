@@ -10,7 +10,7 @@
 
 1. 로컬 AGENTS.md와 설치 문서, Git 상태, 원격 저장소, Vercel 연결 프로젝트를 확인합니다.
 2. `.env.example`의 이름만 읽고 비밀값은 출력하지 않습니다. 회사 운영 체크아웃이나 다른 설치의 `.vercel`을 복사하지 않습니다.
-3. 빈 Supabase에 SQL 001~008을 순서대로 적용합니다. 기존 DB라면 테이블·마이그레이션 상태부터 확인하고 파괴적 초기화를 하지 않습니다.
+3. 기본 설치·AI·Google 단계를 분리합니다. `npm run setup:check`와 선택 옵션 `-- --ai`, `-- --google`로 설정 형식부터 점검하고 비밀키가 필요할 때 `npm run setup:secrets`를 실행합니다. 이 명령의 성공을 실제 연결 성공으로 해석하지 않습니다. 빈 Supabase에 SQL 001~008을 순서대로 적용합니다. 기존 DB라면 테이블·마이그레이션 상태부터 확인하고 파괴적 초기화를 하지 않습니다.
 4. 최초 사용자 생성은 사용자/관리자 절차로 완료하고 승인된 UUID만 seo_members에 추가합니다. 계정만 있거나 비회원이면 데이터 접근을 거절해야 합니다.
 5. 기본 로그인과 빈 브랜드 상태를 확인합니다. 사용자가 제공한 사이트를 UI로 추가하고 실제 진단을 실행합니다.
 6. AI 연결은 자신의 Gateway 접근·비용을 확인한 후 소량 실행합니다. 실패를 성공이나 미언급 0점으로 저장하지 않습니다.
@@ -22,6 +22,7 @@
 
 | 위치 | 역할 |
 |---|---|
+| lib/setup.ts / scripts/check-setup.ts / scripts/setup-secrets.mjs | 첫 설치 설정 검사, 비밀키 생성(기존 값 보존) |
 | app/page.tsx | 로그인 상태, 회원 검사, 브랜드 CRUD, 전체 화면 |
 | app/login-card.tsx / lib/login-identity.ts | 이메일 로그인, 특정 회사 관리자 별칭 없음 |
 | lib/app-origin.ts | 설치별 OAuth origin 검증 |

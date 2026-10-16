@@ -1,5 +1,28 @@
 # 독립 설치 가이드
 
+## 0. 처음 시작할 때: 세 단계로 나누세요
+
+**기본 설치**는 GitHub 사본 + Supabase + 이메일 로그인 + 브랜드 등록 + 사이트 진단입니다. AI나 Google 계정이 아직 없어도 여기까지 먼저 진행할 수 있습니다. 다음으로 **AI 연결**, 마지막으로 **Google 연결과 예약 수집**을 확인합니다. 기능을 선택하지 않았거나 승인을 기다리는 상태는 오류나 완료로 표시하지 않습니다.
+
+GitHub에서 Use this template → Create a new repository를 선택하고 본인 계정의 **Private** 저장소를 만드세요. 공개 저장소의 Fork는 공개 이력을 공유하므로 설치용 비공개 사본이 필요하면 템플릿을 사용하세요. 에이전트는 새 저장소 소유 계정과 이름을 확인한 뒤 작업합니다.
+
+```bash
+git clone https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY.git
+cd YOUR_REPOSITORY
+node --version
+npm ci
+cp .env.example .env.local
+```
+
+Node.js 24를 권장합니다(최소 22.6). Windows PowerShell에서는 복사 명령에 `Copy-Item .env.example .env.local`을 사용하세요. Supabase 프로젝트 생성 화면의 Project URL과 API Keys → Publishable key를 자신의 `.env.local`에 입력합니다. Secret/service_role 키를 공개 변수에 넣지 마세요.
+
+```bash
+npm run setup:check
+npm run dev
+```
+
+설정이 없거나 예시 값 그대로이면 브라우저에 **첫 설치 설정이 필요합니다**가 표시됩니다. 설정 수정 후 서버를 재시작하세요. 이 화면으로 빌드가 성공해도 실제 설치 완료는 아닙니다. `setup:check` 통과 후 로그인과 DB 접근을 따로 확인해야 합니다.
+
 ## 1. 설치 정보 준비
 
 | 입력 | 의미 | 예시(실제 운영값 아님) |
@@ -18,7 +41,7 @@
 
 초기 SQL은 `extensions` 스키마에 `pgcrypto`를 준비합니다. 기존 다른 앱 DB에 설치하면 확장 위치·동명 테이블이 충돌할 수 있으므로 새 프로젝트를 권장합니다.
 
-1. Supabase Authentication → Users에서 본인 이메일 사용자와 비밀번호를 생성합니다. 이 앱에는 공개 회원가입 화면이 없습니다.
+1. Supabase Authentication → Users에서 본인 이메일 사용자와 비밀번호를 생성합니다. 관리자 생성 화면에서 이메일 확인 상태도 완료하세요(또는 확인 메일 절차를 마칩니다). 미확인 이메일은 로그인에서 거절될 수 있습니다. 이 앱에는 공개 회원가입 화면이 없습니다.
 2. Users 화면에서 사용자 UUID를 복사합니다.
 3. 아래 SQL의 값을 바꾸어 실행합니다. 이 작업은 설치 관리자만 수행합니다.
 
@@ -50,10 +73,12 @@ on conflict do nothing;
 
 Vercel AI Gateway의 OIDC가 구성된 배포에서는 해당 인증을 사용할 수 있습니다. 로컬에서는 자신의 Gateway API 키를 준비하세요. `lib/model-config.ts`의 기본 모델은 `google/gemini-2.5-flash-lite`이며 계정의 모델 접근권한·검색 도구 지원·잔액을 확인해야 합니다.
 
-키 생성 예시(각각 따로 실행하고 비밀 저장소에 보관):
+AI 연결 준비 후 `npm run setup:check -- --ai`, Google 연결 준비 후 `npm run setup:check -- --google`을 실행하세요. 외부 요청 없이 필수 값의 형식을 확인하며 값 자체는 출력하지 않습니다. 실제 권한·잔액·DB 해시 일치 여부까지 검증하는 명령은 아닙니다.
+
+Google/예약 수집용 비밀키는 다음 명령으로 만드세요. `.env.local`의 빈 CRON_SECRET·GOOGLE_TOKEN_KEY만 생성하고 기존 값은 유지합니다. 파일에는 비밀값을 저장하지만 콘솔에는 Cron 해시만 출력합니다.
 
 ```bash
-openssl rand -hex 32
+npm run setup:secrets
 ```
 
 GOOGLE_TOKEN_KEY는 연결한 토큰이 존재하는 동안 유지해야 합니다. 분실·변경 시 다시 Google 인증해야 합니다. 비밀 값에 `NEXT_PUBLIC_`를 붙이지 않습니다. 키를 공개 이슈·채팅·README에 붙이지 않습니다.
@@ -68,10 +93,10 @@ values (true, 'YOUR_CRON_SECRET_SHA256_HEX')
 on conflict (singleton) do update set secret_hash = excluded.secret_hash;
 ```
 
-예를 들어 로컬 환경에 CRON_SECRET을 안전하게 로드한 뒤:
+위 생성 명령은 이미 해시를 출력합니다. 나중에 다시 계산할 때는 `.env.local`을 명시적으로 로드하세요(Node.js 24):
 
 ```bash
-node -e "console.log(require('node:crypto').createHash('sha256').update(process.env.CRON_SECRET).digest('hex'))"
+node --env-file=.env.local -e "console.log(require('node:crypto').createHash('sha256').update(process.env.CRON_SECRET).digest('hex'))"
 ```
 
 해시와 환경변수가 다르면 예약·Google 연결이 실패합니다. 평문 키를 로그에 출력하지 마세요.
@@ -124,11 +149,12 @@ vercel link
 vercel env add NEXT_PUBLIC_SUPABASE_URL production
 vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production
 # 필요한 서버 변수도 같은 방식으로 추가
-vercel env pull .env.local
+# production과 development 환경은 별도입니다. 로컬 파일을 덮어쓰지 않습니다.
+vercel env pull .env.vercel.production --environment=production
 vercel deploy --prod
 ```
 
-처음 도메인이 정해지면 APP_URL을 그 도메인으로 설정하고 다시 배포합니다. 공개 Supabase 변수는 빌드에 포함되므로 변경 후 재배포해야 합니다. 환경변수 가져오기 결과에 비공개 변수의 대체 문자열이 들어갔다면 그것을 실제 키로 사용하지 마세요.
+처음 도메인이 정해지면 APP_URL을 그 도메인으로 설정하고 다시 배포합니다. 공개 Supabase 변수는 빌드에 포함되므로 변경 후 재배포해야 합니다. 로컬 `.env.local`은 APP_URL=http://localhost:3000을 유지하세요. Production에는 HTTPS 운영 주소를 넣고 Google 승인 URI에도 각각 등록하세요. 환경변수 가져오기 결과에 비공개 변수의 대체 문자열이 들어갔다면 그것을 실제 키로 사용하지 마세요.
 
 GitHub Import를 사용할 수도 있습니다. 배포한 Vercel 프로젝트가 **본인 저장소와 본인 Supabase**에 연결됐는지 확인하세요. `.vercel/`과 `.env.local`은 Git에 올리지 않습니다.
 
@@ -139,7 +165,8 @@ GitHub Import를 사용할 수도 있습니다. 배포한 Vercel 프로젝트가
 | 확인/증상 | 조치 |
 |---|---|
 | 로그인은 되지만 사용 권한 없음 | 해당 Auth UUID를 seo_members에 등록했는지 확인 |
-| 빈 화면/환경변수 오류 | Supabase 공개 변수, 빌드 시점 설정, 재배포 확인 |
+| 첫 설치 설정 화면 | 예시 값을 본인 Supabase URL·publishable key로 교체 → setup:check → 서버 재시작/재배포 |
+| 이메일 미확인 오류 | Auth 사용자 이메일 확인 절차 또는 관리자 생성 시 확인 상태 점검 |
 | 첫 화면에 브랜드 없음 | 정상 초기 상태. 브랜드 추가 |
 | Google 설정 미완료 | APP_URL, OAuth 변수, 토큰 키, Cron 비밀키와 DB 해시 확인 |
 | redirect_uri_mismatch | 도구 APP_URL과 Google 승인 URI 정확히 일치시키기 |
