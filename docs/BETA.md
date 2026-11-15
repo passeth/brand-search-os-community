@@ -54,3 +54,10 @@ npm run start
 - 전체 마이그레이션과 실제 로컬 인증·API 저장 검사를 재현할 스크립트 및 CI를 제공합니다.
 
 문제 제보 시 Node/OS 버전, 실패한 단계, 비밀값을 지운 오류, 재현 방법을 GitHub Issue에 남겨 주세요. 환경 파일·토큰·개인정보는 첨부하지 마세요.
+
+## 다중 엔진 업데이트 로컬 검증 (2026-11-15)
+
+- 단위/회귀 테스트 46개 통과: credit fail-closed, 고정 오류 문구, 검색 출처와 인용 annotation 분리, 엔진/사이트/언어 cohort, 클릭/리드 독립 요청, 28일 inclusive 기간, 속성 필터와 cleanup-before-claim.
+- TypeScript 및 Next production build 통과. 실제 API 생성·Google 조회·운영 DB·배포 호출은 하지 않았습니다.
+- PostgreSQL 17 로컬 실행은 OS shared-memory 제한(`shmget: Operation not permitted`) 때문에 initdb 단계에서 차단되었습니다. 새 설치/기존 업그레이드 SQL runtime 검증은 미완료이며 승인된 별도 로컬 DB 환경에서 확인해야 합니다. 마이그레이션을 운영에 적용하지 않았습니다.
+- 다중 엔진 비교는 수동 엔진 선택, 예약 수집은 Gemini 전용. GA4 페이지 결과는 조회 시 측정되며 DB에 저장하지 않습니다. 페이지당 1,000건 초과 관찰은 부분 집계 대신 거절합니다.

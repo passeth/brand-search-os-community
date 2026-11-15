@@ -2,6 +2,8 @@
 import {useCallback,useEffect,useState} from 'react';
 import {SearchIntelligence} from './search-intelligence';
 import {ObservationEvidence} from './observation-evidence';
+import {cohortKey} from '@/lib/cohort';
+import {observationEngines,type ObservationEngine} from '@/lib/model-config';
 import {comparisonKey} from '@/lib/grounding';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {Sparkles,Play,CalendarClock,Download,Plus,RefreshCw,BookOpen,ArrowRight,CheckCircle2} from 'lucide-react';
@@ -13,6 +15,7 @@ const pct=(value:number|null)=>value===null?'미측정':`${(value*100).toFixed(1
 function download(name:string,value:unknown){const content=typeof value==='string'?value:JSON.stringify(value,null,2);const url=URL.createObjectURL(new Blob([content],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);}
 
 export function MonitorWorkspace({brand,client,onChange,onStrategy,initialSection='questions',hideTabs=false}:{initialSection?:string;hideTabs?:boolean;brand:Brand;client:SupabaseClient;onChange:()=>Promise<void>;onStrategy:()=>void}) {
+ const [engine,setEngine]=useState<ObservationEngine>('gemini');
  const [section,setSection]=useState(initialSection),[filter,setFilter]=useState('all');
  const [prompts,setPrompts]=useState<Prompt[]>([]),[observations,setObservations]=useState<Observation[]>([]),[runs,setRuns]=useState<MonitorRun[]>([]);
  const [schedule,setSchedule]=useState<Schedule>({brand_id:brand.id,enabled:false,cadence:'mwf',prompt_limit:10});
@@ -46,17 +49,19 @@ export function MonitorWorkspace({brand,client,onChange,onStrategy,initialSectio
   let success=0;const failures:string[]=[];
   for(let i=0;i<items.length;i++){
    setBusy(`수집 중 ${i+1}/${items.length}`);
-   try{await api('observe',{promptId:items[i].id});success++;}catch(e){failures.push(e instanceof TypeError?'네트워크 응답을 확인하지 못했습니다. 서버에는 저장되었을 수 있으니 잠시 후 새로고침하세요.':e instanceof Error?e.message:'실패');break;}
+   try{await api('observe',{promptId:items[i].id,engine});success++;}catch(e){failures.push(e instanceof TypeError?'네트워크 응답을 확인하지 못했습니다. 서버에는 저장되었을 수 있으니 잠시 후 새로고침하세요.':e instanceof Error?e.message:'실패');break;}
   }
   await load();await onChange();setMessage(`${success}개 응답의 저장을 확인했습니다.${failures.length?' '+failures[0]+' 남은 질문은 실행하지 않았습니다.':''}`);
  }
  const active=prompts.filter(p=>p.active),shown=prompts.filter(p=>filter==='all'||p.intent===filter);
  const current=currentPromptObservations(observations,prompts);
- const summary=summarizeObservations(current,brand,scope),report=weeklyReport(current,brand);
- const latestFor=(p:Prompt)=>observations.find(o=>o.measurement?.quality!=='incomplete'&&o.prompt_id===p.id&&o.prompt===p.prompt&&o.measurement?.comparisonKey===comparisonKey(brand));
+ const summary=summarizeObservations(current,brand,scope,observationEngines[engine].protocol),report=weeklyReport(current,brand,new Date(),observationEngines[engine].protocol);
+ const latestFor=(p:Prompt)=>observations.find(o=>o.measurement?.quality!=='incomplete'&&o.model===observationEngines[engine].model&&o.measurement?.cohort===cohortKey(brand)&&o.prompt_id===p.id&&o.prompt===p.prompt&&o.measurement?.comparisonKey===comparisonKey(brand));
 
  return <div className="monitor-workspace">
-  <div className="monitor-intro"><div><span className="tiny-label">MEASURE → LEARN → IMPROVE</span><h2>고객의 질문에서, 다음 콘텐츠까지.</h2><p>질문을 고정하고 반복 측정합니다. 경쟁사가 언급되는 이유를 확인한 뒤 우리 답변과 근거를 보완하세요.</p></div><span className="subtle-badge">Gemini API · Google 검색</span></div>
+  <div className="monitor-intro"><div><span className="tiny-label">MEASURE → LEARN → IMPROVE</span><h2>고객의 질문에서, 다음 콘텐츠까지.</h2><p>질문을 고정하고 반복 측정합니다. 경쟁사가 언급되는 이유를 확인한 뒤 우리 답변과 근거를 보완하세요.</p></div><label>관찰 엔진<select value={engine} onChange={e=>setEngine(e.target.value as ObservationEngine)}>{Object.entries(observationEngines).map(([key,c])=><option key={key} value={key}>{c.platform}</option>)}</select></label></div>
+  <p className="method-note">사이트 {brand.domain} · 언어 {brand.language??'und'} · API 응답이며 소비자 ChatGPT/Gemini 화면이 아닙니다. 엔진을 각각 선택해 같은 질문을 측정하세요. 자동 예약은 Gemini만 사용합니다.</p>
+  <section className="panel padded"><h3>엔진별 독립 표본</h3>{Object.entries(observationEngines).map(([key,c])=>{const x=summarizeObservations(current,brand,scope,c.protocol);return <p key={key}>{c.platform} · {c.model} · 성공 질문 {x.total} · 언급률 {pct(x.entities[0]?.rate??null)} · 인용률 {pct(x.entities[0]?.citationRate??null)}</p>;})}<p>서로 다른 질문 표본의 차이를 엔진 우열이나 언어 효과로 해석하지 마세요.</p></section>
   {!hideTabs&&<nav className="monitor-tabs" aria-label="AI 모니터링 메뉴">{sections.map(([id,label])=><button key={id} aria-pressed={section===id} onClick={()=>setSection(id)}>{label}</button>)}</nav>}
   {message&&<div className="notice" role="status">{message}</div>}
   {!!busy&&<div className="progress-note" role="status"><RefreshCw className="spin" size={15}/>{busy}</div>}
@@ -74,7 +79,7 @@ export function MonitorWorkspace({brand,client,onChange,onStrategy,initialSectio
   {section==='comparison'&&<>
    <SearchIntelligence brand={brand} rows={observations} prompts={prompts} onNavigate={v=>v==='prompts'?setSection('questions'):onStrategy()}/>
    <section className="panel padded"><h2>비교 대상 설정</h2><p className="muted">같은 고객 문제를 해결하는 회사를 비교하세요. 이름의 별칭은 | 기호로 구분할 수 있습니다. 비교군이 바뀌면 이전 비교군의 수치는 합산하지 않습니다.</p><form className="inline-form" onSubmit={e=>{e.preventDefault();run('경쟁사 저장',async()=>{const values=competitors.split(',').map(v=>v.trim()).filter(Boolean);if(values.length>5)throw new Error('경쟁사는 최대 5개까지 등록하세요.');const official:Record<string,string[]>={};for(const name of values){official[name]=(domains[name]||'').split(',').map(v=>v.trim()).filter(Boolean).map(v=>{let host:string;try{host=new URL(v.includes('://')?v:'https://'+v).hostname.toLowerCase().replace(/^www\./,'');}catch{throw new Error('올바른 공식 도메인을 입력하세요.');}if(!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host))throw new Error('올바른 공식 도메인을 입력하세요.');return host;});}const {error}=await client.from('seo_brands').update({competitors:values,competitor_domains:official}).eq('id',brand.id);if(error)throw error;await onChange();setMessage('비교 대상을 저장했습니다. 다음 측정부터 적용됩니다.');});}}><label>비교 브랜드 (쉼표로 구분)<input value={competitors} onChange={e=>setCompetitors(e.target.value)} placeholder="한국콜마 | Kolmar, 비교사 | RIVAL"/></label>{competitors.split(',').map(v=>v.trim()).filter(Boolean).map(name=><label key={name}>{name.split('|')[0]} 공식 도메인<input value={domains[name]||''} onChange={e=>setDomains({...domains,[name]:e.target.value})} placeholder="example.com (여러 도메인은 쉼표)"/></label>)}<button className="button" disabled={!!busy}>경쟁사 저장</button></form><p className="method-note">공식 인용 도메인: {Object.entries(brand.competitor_domains??{}).map(([n,d])=>n.split('|')[0]+': '+d.join(', ')).join(' / ')||'미등록'}</p></section>
-   <section className="panel"><div className="panel-heading"><div><h2>AI 답변 내 경쟁 구도</h2><p>현재 비교군 · Gemini API 성공 응답 {summary.total}건 · 질문별 최신 응답 · 최근 최대 1,000개 기록</p></div><select aria-label="비교 질문 범위" value={scope} onChange={e=>setScope(e.target.value as typeof scope)}><option value="discovery">추적 브랜드명 없는 질문</option><option value="branded">브랜드 지정 질문</option><option value="all">전체 질문</option></select></div><div className="monitor-table-wrap"><table className="monitor-table"><thead><tr><th>브랜드</th><th>언급 응답 / 성공 응답</th><th>언급률</th><th>이름 등장 점유율</th><th>평균 첫등장 순서</th></tr></thead><tbody>{summary.entities.map((e,i)=><tr key={e.name}><th>{e.name}{i===0?' · 자사':''}</th><td>{e.slots} / {e.total}</td><td><div className="rate-bar"><span style={{width:`${(e.rate??0)*100}%`}}/></div>{pct(e.rate)}</td><td>{pct(e.share)}</td><td>{e.order===null?'미측정':e.order.toFixed(1)}</td></tr>)}</tbody></table></div><div className="method-note">언급률 = 이름이 한 번 이상 나온 응답 / 성공 응답. 점유율 = 추적 대상 이름의 등장 횟수 중 해당 이름 비율. 순서는 추적 대상 중 본문 첫등장 순서이며, 추천 순위가 아닙니다. 공식 도메인 인용과 검색 출처는 위 표에서 별도로 확인하세요.</div></section>
+   <section className="panel"><div className="panel-heading"><div><h2>AI 답변 내 경쟁 구도</h2><p>현재 비교군 · 선택 엔진 API 성공 응답 {summary.total}건 · 질문별 최신 응답 · 최근 최대 1,000개 기록</p></div><select aria-label="비교 질문 범위" value={scope} onChange={e=>setScope(e.target.value as typeof scope)}><option value="discovery">추적 브랜드명 없는 질문</option><option value="branded">브랜드 지정 질문</option><option value="all">전체 질문</option></select></div><div className="monitor-table-wrap"><table className="monitor-table"><thead><tr><th>브랜드</th><th>언급 응답 / 성공 응답</th><th>언급률</th><th>이름 등장 점유율</th><th>평균 첫등장 순서</th></tr></thead><tbody>{summary.entities.map((e,i)=><tr key={e.name}><th>{e.name}{i===0?' · 자사':''}</th><td>{e.slots} / {e.total}</td><td><div className="rate-bar"><span style={{width:`${(e.rate??0)*100}%`}}/></div>{pct(e.rate)}</td><td>{pct(e.share)}</td><td>{e.order===null?'미측정':e.order.toFixed(1)}</td></tr>)}</tbody></table></div><div className="method-note">언급률 = 이름이 한 번 이상 나온 응답 / 성공 응답. 점유율 = 추적 대상 이름의 등장 횟수 중 해당 이름 비율. 순서는 추적 대상 중 본문 첫등장 순서이며, 추천 순위가 아닙니다. 공식 도메인 인용과 검색 출처는 위 표에서 별도로 확인하세요.</div></section>
    <section className="panel padded"><h2>질문별 기회 → 실행</h2><p className="muted">경쟁사만 등장하면 보완 우선, 자사만 등장하면 유지, 모두 없으면 탐색, 함께 등장하면 경합입니다. 단일 표본에 따른 작업 가설입니다.</p>{active.map(p=>{const o=latestFor(p);return <div className="gap-row" key={p.id}><span>{p.prompt}</span><b>{!o?'측정 대기':o.mentioned?(o.measurement?.entities.slice(1).some(e=>e.count)?'경합':'유지'):(o.measurement?.entities.slice(1).some(e=>e.count)?'보완 우선':'탐색 기회')}</b></div>;})}<button className="button" onClick={onStrategy}>근거 기반 콘텐츠 전략<ArrowRight size={14}/></button></section>
   </>}
   {section==='schedule'&&<>

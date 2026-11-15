@@ -1,8 +1,10 @@
 import {gscMatchesBrand,ga4MatchesBrand} from '@/lib/google-domain';
 import {authorize,apiError} from '@/lib/auth';import {cookies} from 'next/headers';
-import {googleConfigured,googleCallback,oauthStart,googleAccess,listGoogleProperties,worker,syncGoogle,ga4Streams,liveGoogle} from '@/lib/google';
+import {googleConfigured,googleCallback,oauthStart,googleAccess,listGoogleProperties,worker,syncGoogle,ga4Streams,liveGoogle,pageOutcomes} from '@/lib/google';
+import {pageURL} from '@/lib/page-attribution';
 export const runtime='nodejs';export const maxDuration=180;
-export async function POST(request:Request){try{const {client,user}=await authorize(request);const {brandId,action,gscSite,ga4Property}=await request.json();const {data:brand}=await client.from('seo_brands').select('id,domain').eq('id',brandId).single();if(!brand)throw new Error('브랜드를 선택하세요.');
+export async function POST(request:Request){try{const {client,user}=await authorize(request);const {brandId,action,gscSite,ga4Property,url}=await request.json();const {data:brand}=await client.from('seo_brands').select('*').eq('id',brandId).single();if(!brand)throw new Error('브랜드를 선택하세요.');
+ if(action==='page-outcomes'){const target=pageURL(url,brand);const q=await client.rpc('seo_reserve_audit');if(q.error||!q.data)throw new Error('시간당 실행 한도를 확인하세요.');return Response.json(await pageOutcomes(brandId,target));}
  if(action==='status'){const {data,error}=await client.from('seo_google_connections').select('*').eq('brand_id',brandId).maybeSingle();if(error)throw new Error('연결 상태 확인 실패');return Response.json({configured:googleConfigured(),connection:data,callback:process.env.APP_URL?googleCallback():null});}
  if(action==='connect'){const start=oauthStart(user.id,brandId);(await cookies()).set('brand_google_oauth',start.cookie,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/api/google',maxAge:600});return Response.json({url:start.url});}
  if(action==='streams'){const {access}=await googleAccess(brandId);const urls=await ga4Streams(access,ga4Property);return Response.json({urls,matches:ga4MatchesBrand(urls,brand.domain)});}

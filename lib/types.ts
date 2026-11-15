@@ -1,4 +1,4 @@
-export type Brand={id:string;name:string;domain:string;audience:string;keywords:string[];competitors:string[];competitor_domains?:Record<string,string[]>};
+export type Brand={id:string;name:string;domain:string;language?:'ko'|'en'|'und';audience:string;keywords:string[];competitors:string[];competitor_domains?:Record<string,string[]>};
 export type Check={id:string;name:string;category:'SEO'|'AEO';passed:boolean;weight:number;evidence:string;action:string;priority:'P0'|'P1'|'P2'};
 export type PageReport={url:string;title:string;description:string;h1:string[];status:number;checks:Check[];textExcerpt:string};
 export type Report={version:string;startedAt:string;pages:PageReport[];errors:{url:string;message:string}[];robots:string;sitemap:string;seo:number;aeo:number;limitations:string[]};

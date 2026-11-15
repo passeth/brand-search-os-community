@@ -1,5 +1,6 @@
 import type {Brand, Observation} from './types';
-import {observationModel,observationProtocol} from './model-config';
+import {cohortKey} from './cohort';
+import {observationEngines,observationModel,observationProtocol} from './model-config';
 import {comparisonKey,entityDomains,sourceBelongs,type Grounding} from './grounding';
 
 export const intents = {compare:'비교',recommend:'추천',action:'실행',concept:'개념',solve:'해결',qualify:'조건'} as const;
@@ -9,7 +10,7 @@ export type PromptDraft = Pick<Prompt,'prompt'|'intent'|'keyword'|'stage'>;
 export type Schedule = {brand_id:string;enabled:boolean;cadence:'mwf'|'daily'|'weekly';prompt_limit:number};
 export type MonitorRun = {id:string;brand_id:string;prompt_id:string;prompt:string;slot_date:string;status:'running'|'succeeded'|'failed';error:string|null;started_at:string;finished_at:string|null;model:string;brand_snapshot:Brand;protocol:string};
 export type EntityMention = {name:string;count:number;firstPosition:number|null;order:number|null};
-export type Measurement = {version:'mentions-v1'|'grounding-v2';quality?:'complete'|'incomplete';protocol?:string;mentioned:boolean;scope:'discovery'|'branded';entities:EntityMention[];webSearch:boolean;citations:number[]|null;comparisonKey:string;grounding?:Grounding};
+export type Measurement = {version:'mentions-v1'|'grounding-v2';quality?:'complete'|'incomplete';protocol?:string;engine?:string;cohort?:string;mentioned:boolean;scope:'discovery'|'branded';entities:EntityMention[];webSearch:boolean;citations:number[]|null;comparisonKey:string;grounding?:Grounding};
 
 export function entityAliases(name:string) {
   return [...new Set(name.split(/[·|]/).map(v=>v.trim()).filter(v=>v.length>=2))];
@@ -51,7 +52,7 @@ export function parsePromptDrafts(text:string):PromptDraft[] {
 }
 
 export function promptGenerationInstructions(brand:Brand) {
-  return `한국 고객이 검색 또는 AI에 실제로 물을 법한 자연스러운 질문 초안 10개를 JSON 배열로 작성하세요. 각 객체는 prompt, intent, keyword, stage만 포함합니다.
+  return `${brand.language==='en'?'English-speaking customers, in English:':'한국어로 한국 고객이'} 검색 또는 AI에 실제로 물을 법한 자연스러운 질문 초안 10개를 JSON 배열로 작성하세요. 각 객체는 prompt, intent, keyword, stage만 포함합니다.
 intent 구성: compare 3개, recommend 2개, action 2개, concept 1개, solve 1개, qualify 1개.
 stage: awareness, consideration, action 중 선택. keyword: 아래 등록 키워드 중 하나.
 적어도 7개는 어떤 회사/브랜드 이름도 포함하지 않는 카테고리 탐색 질문으로 작성하세요. 나머지는 명시적 브랜드 비교/이용 질문으로 작성해도 됩니다. 경쟁사 이름은 제공된 이름만 사용하세요.
@@ -64,10 +65,10 @@ export function currentPromptObservations(rows:Observation[],prompts:Pick<Prompt
   return rows.filter(o=>{const p=o.prompt_id?current.get(o.prompt_id):undefined;return !!p&&p.brand_id===o.brand_id&&p.prompt===o.prompt;});
 }
 
-export function summarizeObservations(rows:Observation[],brand:Brand,scope:'discovery'|'branded'|'all'='discovery',protocol=observationProtocol) {
+export function summarizeObservations(rows:Observation[],brand:Brand,scope:'discovery'|'branded'|'all'='discovery',protocol:string=observationProtocol) {
   const names=[...new Set([brand.name,...brand.competitors].map(v=>v.trim()).filter(Boolean))];
   const key=protocol==='text-only'?JSON.stringify(names):comparisonKey(brand);
-  const matching=rows.filter(o=>o.measurement?.quality!=='incomplete'&&o.source_kind==='model_api'&&o.model===observationModel&&(o.measurement?.protocol??'text-only')===protocol&&o.measurement?.comparisonKey===key&&(scope==='all'||o.measurement.scope===scope));
+  const matching=rows.filter(o=>o.measurement?.quality!=='incomplete'&&o.source_kind==='model_api'&&o.model===(Object.values(observationEngines).find(e=>e.protocol===protocol)?.model??observationModel)&&(!brand.language||brand.language==='und'? !o.measurement?.cohort:o.measurement?.cohort===cohortKey(brand))&&(o.measurement?.protocol??'text-only')===protocol&&o.measurement?.comparisonKey===key&&(scope==='all'||o.measurement.scope===scope));
   // One latest answer per exact question: manual re-runs cannot overweight a prompt.
   const eligible=[...new Map([...matching].sort((a,b)=>a.observed_at.localeCompare(b.observed_at)).map(o=>[o.prompt,o])).values()];
   const totalMentions=eligible.reduce((sum,o)=>sum+o.measurement!.entities.reduce((n,e)=>n+e.count,0),0);
@@ -83,7 +84,7 @@ export function summarizeObservations(rows:Observation[],brand:Brand,scope:'disc
   return {eligible,entities,total:eligible.length,totalMentions,observations:matching.length,searches:eligible.filter(o=>o.measurement?.webSearch).length,unresolved:eligible.reduce((n,o)=>n+(o.measurement?.grounding?.sources.filter(s=>!s.resolvedUrl).length??0),0)};
 }
 
-export function weeklyReport(rows:Observation[],brand:Brand,now=new Date(),protocol=observationProtocol) {
+export function weeklyReport(rows:Observation[],brand:Brand,now=new Date(),protocol:string=observationProtocol) {
   const start=new Date(now.getTime()-7*86400000), previousStart=new Date(now.getTime()-14*86400000);
   const recent=rows.filter(o=>new Date(o.observed_at)>=start&&new Date(o.observed_at)<=now);
   const earlier=rows.filter(o=>new Date(o.observed_at)>=previousStart&&new Date(o.observed_at)<start);
@@ -95,5 +96,5 @@ export function weeklyReport(rows:Observation[],brand:Brand,now=new Date(),proto
   const summary=summarizeObservations(recent,brand,'discovery',protocol);
   const own=summary.entities[0];
   const delta=current.entities[0]?.rate!=null&&previous.entities[0]?.rate!=null?(current.entities[0].rate-previous.entities[0].rate)*100:null;
-  return {summary,current,previous,delta,text:[`# ${brand.name} · 최근 7일 AI 관찰 리포트`,`기간: ${start.toISOString().slice(0,10)} ~ ${now.toISOString().slice(0,10)}`,'',`Gemini 모델 API · ${protocol==='text-only'?'웹 검색 미사용':'Google 검색'} · 추적 브랜드명이 없는 질문 · 질문별 최신 응답 1건`,`성공 응답 ${summary.total}건 · 자사 언급 ${own?.slots??0}건`,delta===null?'전주 변화: 비교할 동일 질문/모델 표본이 부족합니다.':`전주 대비: ${delta.toFixed(1)}%p (동일 질문/모델만, 이번 ${current.total}건 / 이전 ${previous.total}건)`,'',...summary.entities.map(e=>`- ${e.name}: ${e.total?`${e.slots}/${e.total}건, ${(e.rate!*100).toFixed(1)}%`:'미측정'}`),'','## 우선 검토 질문',...summary.eligible.filter(o=>!o.mentioned&&o.measurement?.entities.slice(1).some(e=>e.count>0)).slice(0,3).map(o=>`- ${o.prompt} (관찰 ${o.id}): 경쟁사만 언급됨. 답변의 근거 URL과 자사 페이지를 비교하세요.`),'','## 이번 주 실행','1. 경쟁사만 언급된 질문의 답변을 읽고 우리 홈페이지에 빠진 설명을 확인합니다.','2. 답을 먼저 제시하고, 확인 가능한 근거·기준 시점·출처를 포함한 콘텐츠를 준비합니다.','3. 검토 후 게시하고 같은 질문을 다시 측정합니다. 단일 응답의 변화만으로 효과를 단정하지 않습니다.','','멘션은 이름의 등장입니다. 출처 인용·검색 순위·시장점유율을 의미하지 않습니다.'].join('\n')};
+  return {summary,current,previous,delta,text:[`# ${brand.name} · 최근 7일 AI 관찰 리포트`,`기간: ${start.toISOString().slice(0,10)} ~ ${now.toISOString().slice(0,10)}`,'',`${Object.values(observationEngines).find(e=>e.protocol===protocol)?.platform??'모델 API'} · ${protocol==='text-only'?'웹 검색 미사용':'Google 검색'} · 추적 브랜드명이 없는 질문 · 질문별 최신 응답 1건`,`성공 응답 ${summary.total}건 · 자사 언급 ${own?.slots??0}건`,delta===null?'전주 변화: 비교할 동일 질문/모델 표본이 부족합니다.':`전주 대비: ${delta.toFixed(1)}%p (동일 질문/모델만, 이번 ${current.total}건 / 이전 ${previous.total}건)`,'',...summary.entities.map(e=>`- ${e.name}: ${e.total?`${e.slots}/${e.total}건, ${(e.rate!*100).toFixed(1)}%`:'미측정'}`),'','## 우선 검토 질문',...summary.eligible.filter(o=>!o.mentioned&&o.measurement?.entities.slice(1).some(e=>e.count>0)).slice(0,3).map(o=>`- ${o.prompt} (관찰 ${o.id}): 경쟁사만 언급됨. 답변의 근거 URL과 자사 페이지를 비교하세요.`),'','## 이번 주 실행','1. 경쟁사만 언급된 질문의 답변을 읽고 우리 홈페이지에 빠진 설명을 확인합니다.','2. 답을 먼저 제시하고, 확인 가능한 근거·기준 시점·출처를 포함한 콘텐츠를 준비합니다.','3. 검토 후 게시하고 같은 질문을 다시 측정합니다. 단일 응답의 변화만으로 효과를 단정하지 않습니다.','','멘션은 이름의 등장입니다. 출처 인용·검색 순위·시장점유율을 의미하지 않습니다.'].join('\n')};
 }

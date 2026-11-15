@@ -34,3 +34,11 @@ export async function resolveGrounding(grounding:Grounding):Promise<Grounding>{
 export function assertCompleteAnswer(text:string,finishReason:string) {
  if(!text.trim()||finishReason==='length'||finishReason==='error'||finishReason==='content-filter'||/[ \t]{100,}/.test(text))throw new Error('AI 답변이 완성되지 않아 지표에 반영하지 않았습니다. 다시 측정해 주세요.');
 }
+
+// Search source lists and answer citation annotations are different provider evidence.
+export function parseOpenAISources(sources:readonly unknown[],content:readonly unknown[]=[]):Grounding {
+ const rows=sources.flatMap((v,index)=>{const s=object(v),url=httpsURL(s.url);return s.sourceType==='url'&&url?[{index,url,title:typeof s.title==='string'?s.title:'Source',resolvedUrl:url,domain:hostname(url)}]:[];});
+ let known=false;const supports:CitationSupport[]=[];
+ for(const part of content){const p=object(part),m=object(object(p.providerMetadata).openai);if(p.type!=='text'||!Array.isArray(m.annotations))continue;known=true;for(const raw of m.annotations){const a=object(raw);if(a.type!=='url_citation')continue;const url=httpsURL(a.url);if(!url)continue;let source=rows.find(s=>s.url===url);if(!source){source={index:rows.length,url,title:typeof a.title==='string'?a.title:'Source',resolvedUrl:url,domain:hostname(url)};rows.push(source);}supports.push({text:'',start:typeof a.start_index==='number'?a.start_index:null,end:typeof a.end_index==='number'?a.end_index:null,sourceIndices:[source.index]});}}
+ return {provider:'openai',queries:[],sources:rows,supports,citationMetadata:known,searchEntryPoint:null};
+}
