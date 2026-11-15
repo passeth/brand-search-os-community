@@ -5,10 +5,10 @@
 ## 검증 방법
 
 - `npm ci`: 잠금 파일로 의존성 설치
-- `npm test`: URL/SSRF, 인증, OAuth 암호화, 집계, 환경변수 등 34개 테스트
+- `npm test`: URL/SSRF, 인증, OAuth 암호화, 집계, 환경변수·엔진/언어 cohort 등 52개 테스트
 - `npm run build`와 `npm run typecheck`: 설정 없는 첫 설치 화면을 포함한 production 빌드
 - `npm run test:db`: 로컬 PostgreSQL의 임시 DB에 전체 마이그레이션을 적용하고 RLS, 키워드 동기화, 작업 중복 방지, 콘텐츠 버전, Google 동기화 규칙을 검사합니다. `pg_config`, `initdb`, `pg_ctl`, `psql`이 필요합니다. 임시 디렉터리의 DB만 종료·삭제합니다.
-- GitHub Actions `Beta installation checks`: 새 체크아웃에서 임시 로컬 Supabase와 Next 서버를 실행하고 실제 Auth 로그인, 회원/비회원 권한, API 인증, 전략·최적화·과제·콘텐츠 저장, Cron 인증과 빈 작업 실행을 검사합니다. 실행 결과는 Actions에서 확인하세요.
+- GitHub Actions `Beta installation checks`: 새 체크아웃에서 임시 로컬 Supabase와 Next 서버를 실행하고 실제 Auth 로그인, 회원/비회원 권한, API 인증, 전략·최적화·과제·콘텐츠 저장, Cron 인증, Gateway 미설정 시 신규 claim 없음·오래된 실행 정리, 빈 Google 작업 실행을 검사하도록 구성되어 있습니다. 실행 결과는 Actions에서 확인하세요.
 
 DB/API 검사의 문서와 분석 결과는 **테스트용 합성 데이터**입니다. 실제 사이트 크롤링·AI 응답의 품질을 증명하지 않습니다.
 
@@ -30,6 +30,8 @@ npm run build
 npm run typecheck
 npm run start
 ```
+
+AI Gateway/API 키 및 Vercel OIDC가 없는 깨끗한 테스트 셸에서 서버와 검사를 실행해야 합니다. 제공자 자격증명이 설정되어 있으면 검사를 중단합니다.
 
 서버를 켜 둔 채 같은 폴더의 다른 터미널에서 `npm run test:local`을 실행하세요. 성공하면 PASS를 출력합니다. 초기 브랜드가 있으면 실행을 거절합니다. 준비 스크립트는 기존 `.env.local`을 덮어쓰지 않습니다. 두 `.env` 파일은 로컬 테스트 키를 포함하므로 공유하거나 커밋하지 마세요.
 
@@ -57,7 +59,13 @@ npm run start
 
 ## 다중 엔진 업데이트 로컬 검증 (2026-11-15)
 
-- 단위/회귀 테스트 50개 통과: credit fail-closed, 고정 오류 문구, 검색 출처와 인용 annotation 분리, 엔진/사이트/언어 cohort, 클릭/리드 독립 요청, 28일 inclusive 기간, 속성 필터와 cleanup-before-claim.
+- 단위/회귀 테스트 52개 통과: credit fail-closed, 고정 오류 문구, 검색 출처와 인용 annotation 분리, 엔진/사이트/언어 cohort, 클릭/리드 독립 요청, 28일 inclusive 기간, 속성 필터와 cleanup-before-claim.
 - TypeScript 및 Next production build 통과. 실제 API 생성·Google 조회·운영 DB·배포 호출은 하지 않았습니다.
 - PostgreSQL 17 로컬 실행은 OS shared-memory 제한(`shmget: Operation not permitted`) 때문에 initdb 단계에서 차단되었습니다. 새 설치/기존 업그레이드 SQL runtime 검증은 미완료이며 승인된 별도 로컬 DB 환경에서 확인해야 합니다. 마이그레이션을 운영에 적용하지 않았습니다.
 - 다중 엔진 비교는 수동 엔진 선택, 예약 수집은 Gemini 전용. GA4 페이지 결과는 조회 시 측정되며 DB에 저장하지 않습니다. 페이지당 1,000건 초과 관찰은 부분 집계 대신 거절합니다.
+
+### 통합 테스트 보완과 아직 실행하지 않은 범위
+
+- `tests/workflows.sql`은 명시적 English 브랜드의 질문 언어 상속과 claim, 언어 미지정/변경 후 불일치 질문 제외, LIMIT 이전 언어 필터를 검사합니다. cleanup RPC 비밀키 거절, authenticated 실행권한 차단, 15분 초과 실행만 정리, 멱등성, 새 job/observation 미생성도 포함합니다.
+- `scripts/local-smoke.ts`은 실제 로컬 Auth/PostgREST/Next 서버에서 `503 credits_unavailable`, `claimed: 0`을 기대합니다. eligible 질문과 stale 실행을 넣고 신규 job이 생기지 않는지, stale 정리는 완료되는지, Google 빈 worker는 200인지 검사합니다. 유료 AI 연결 성공 검사가 아닙니다.
+- 위 SQL/HTTP 통합 테스트 수정은 이 머신에서 **실행 미검증**입니다. PostgreSQL initdb OS 제한이 선행하며 별도 Supabase 서버를 시작하지 않았습니다. GitHub Actions에는 Supabase fresh-install + HTTP smoke와 별도 PostgreSQL SQL workflow 작업을 구성합니다. 실제 CI 결과 확인 전 통합 PASS로 보고하지 마세요. 기존 설치 upgrade 시나리오 전체 검증은 별도 필요합니다.

@@ -7,6 +7,7 @@ const app=parseEnv(readFileSync('.env.local','utf8'));
 const api=new URL(env.API_URL!),origin=new URL(app.APP_URL!);
 for(const url of [api,origin])assert.ok(url.protocol==='http:'&&['localhost','127.0.0.1'].includes(url.hostname),'Only local disposable endpoints permitted');
 assert.equal(app.NEXT_PUBLIC_SUPABASE_URL,api.origin);
+for(const key of ['AI_GATEWAY_API_KEY','VERCEL_OIDC_TOKEN','OPENAI_API_KEY','GOOGLE_GENERATIVE_AI_API_KEY'])assert.ok(!app[key]&&!process.env[key],'Provider credentials must be absent in this isolated smoke test');
 const admin=createClient(api.origin,env.SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
 const userClient=()=>createClient(api.origin,env.ANON_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
 const users:string[]=[];let brandId:string|undefined;
@@ -17,7 +18,7 @@ async function makeUser(){const email=`beta-${randomBytes(6).toString('hex')}@ex
 try{
  const member=await makeUser(),other=await makeUser();
  check(await admin.from('seo_members').insert({user_id:member.id}));
- const brand=check(await member.client.from('seo_brands').insert({name:'Local beta fixture',domain:'https://example.com',keywords:['sample topic'],competitors:['Comparison fixture']}).select().single()).data;
+ const brand=check(await member.client.from('seo_brands').insert({name:'Local beta fixture',language:'en',domain:'https://example.com',keywords:['sample topic'],competitors:['Comparison fixture']}).select().single()).data;
  brandId=brand.id;
  assert.equal(check(await member.client.from('seo_keywords').select('*').eq('brand_id',brandId!)).data!.length,1);
  assert.equal(check(await other.client.from('seo_brands').select('*')).data!.length,0);
@@ -42,15 +43,35 @@ try{
  assert.equal(revised.revision,2);assert.equal(revised.status,'review');
  assert.equal(check(await member.client.from('seo_content_versions').select('*').eq('content_id',content.id)).data!.length,1);
  check(await admin.from('seo_monitor_credentials').insert({singleton:true,secret_hash:createHash('sha256').update(app.CRON_SECRET!).digest('hex')}));
- // No scheduled questions: verifies real HTTP worker authorization/DB RPC, without model calls.
- for(const path of ['monitor','google']){
-  assert.equal((await fetch(origin.origin+'/api/cron/'+path)).status,401);
-  const r=await fetch(origin.origin+'/api/cron/'+path,{headers:{Authorization:`Bearer ${app.CRON_SECRET}`}});assert.equal(r.status,200,await r.text());
- }
- console.log('PASS real local Auth sign-in, membership/RLS, brand keywords, Next API authorization, fixture-backed strategy, optimization, task/content persistence, versions and empty worker runs.');
+ // Eligible work exists, but a server started without Gateway credentials must not claim it.
+ const prompt=check(await member.client.from('seo_prompts').insert({brand_id:brandId,prompt:'Synthetic English question for preflight?',intent:'compare'}).select().single()).data;
+ assert.equal(prompt.language,'en','Prompt language must inherit the explicit site language');
+ check(await member.client.from('seo_schedules').insert({brand_id:brandId,enabled:true,cadence:'daily',prompt_limit:1}));
+ const stale=check(await admin.from('seo_monitor_runs').insert({brand_id:brandId,prompt_id:prompt.id,slot_date:new Date(Date.now()-86400000).toISOString().slice(0,10),prompt:prompt.prompt,brand_snapshot:brand,model:'google/gemini-2.5-flash-lite',protocol:'google-search-v1',started_at:new Date(Date.now()-16*60000).toISOString()}).select().single()).data;
+ const jobsBefore=check(await admin.from('seo_monitor_runs').select('id').eq('brand_id',brandId!)).data!;
+ assert.equal((await fetch(origin.origin+'/api/cron/monitor')).status,401);
+ assert.equal(check(await admin.from('seo_monitor_runs').select('status').eq('id',stale.id).single()).data!.status,'running','Unauthorized HTTP must not reap');
+ assert.ok((await userClient().rpc('seo_reap_monitor_runs',{p_secret:'wrong'})).error,'Wrong cleanup credential must fail');
+ const monitor=await fetch(origin.origin+'/api/cron/monitor',{headers:{Authorization:`Bearer ${app.CRON_SECRET}`}});
+ assert.equal(monitor.status,503,'Unconfigured Gateway must fail closed, not claim or generate');
+ const result=await monitor.json();assert.equal(result.code,'credits_unavailable');assert.equal(result.claimed,0);assert.equal(result.reaped,1);
+ const jobsAfter=check(await admin.from('seo_monitor_runs').select('id,status,finished_at').eq('brand_id',brandId!)).data!;
+ assert.deepEqual(jobsAfter.map(r=>r.id).sort(),jobsBefore.map(r=>r.id).sort(),'Preflight failure must not create jobs');
+ assert.equal(jobsAfter.find(r=>r.id===stale.id)?.status,'failed');assert.ok(jobsAfter.find(r=>r.id===stale.id)?.finished_at);
+ assert.equal(check(await admin.from('seo_observations').select('id',{head:true,count:'exact'}).eq('brand_id',brandId!)).count,0,'Cleanup must not create observations');
+ assert.equal(check(await userClient().rpc('seo_reap_monitor_runs',{p_secret:app.CRON_SECRET})).data,0,'Cleanup-only RPC remains idempotent');
+ assert.equal((await fetch(origin.origin+'/api/cron/google')).status,401);
+ const google=await fetch(origin.origin+'/api/cron/google',{headers:{Authorization:`Bearer ${app.CRON_SECRET}`}});assert.equal(google.status,200,await google.text());
+ console.log('PASS real local Auth sign-in, membership/RLS, brand keywords, Next API authorization, fixture-backed strategy, optimization, task/content persistence, versions, missing-credit fail-closed worker, no new claims, authenticated stale cleanup and empty Google worker.');
  console.log('Not tested: external AI/Google, live site crawl, browser login, remote deployment or time-triggered scheduling.');
 }finally{
- if(brandId)await admin.from('seo_brands').delete().eq('id',brandId);
+ if(brandId){
+  await admin.from('seo_observations').delete().eq('brand_id',brandId);
+  await admin.from('seo_monitor_runs').delete().eq('brand_id',brandId);
+  await admin.from('seo_schedules').delete().eq('brand_id',brandId);
+  await admin.from('seo_prompts').delete().eq('brand_id',brandId);
+  await admin.from('seo_brands').delete().eq('id',brandId);
+ }
  await admin.from('seo_monitor_credentials').delete().eq('singleton',true);
  for(const id of users){await admin.from('seo_members').delete().eq('user_id',id);await admin.auth.admin.deleteUser(id);}
 }

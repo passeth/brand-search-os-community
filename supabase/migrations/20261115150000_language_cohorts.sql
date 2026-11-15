@@ -23,10 +23,9 @@ begin
  insert into public.seo_monitor_runs(brand_id,prompt_id,slot_date,prompt,brand_snapshot,model,protocol)
  select b.id,p.id,d,p.prompt,to_jsonb(b),'google/gemini-2.5-flash-lite','google-search-v1'
  from public.seo_schedules s join public.seo_brands b on b.id=s.brand_id
- cross join lateral (select q.* from public.seo_prompts q where q.brand_id=s.brand_id and q.active order by q.created_at,q.id limit s.prompt_limit) p
+ cross join lateral (select q.* from public.seo_prompts q where q.brand_id=s.brand_id and q.active and q.language=b.language order by q.created_at,q.id limit s.prompt_limit) p
  where s.enabled and b.language in ('ko','en') and p.language=b.language and (s.cadence='daily' or (s.cadence='mwf' and dow in (1,3,5)) or (s.cadence='weekly' and dow=1))
  and not exists(select 1 from public.seo_monitor_runs r where r.prompt_id=p.id and r.slot_date=d and r.model='google/gemini-2.5-flash-lite' and r.protocol='google-search-v1')
  order by b.created_at,p.created_at,p.id limit remaining
  on conflict(prompt_id,slot_date,model,protocol) do nothing returning *;
 end;$$;
-

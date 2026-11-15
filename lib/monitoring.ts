@@ -68,7 +68,7 @@ export function currentPromptObservations(rows:Observation[],prompts:Pick<Prompt
 export function summarizeObservations(rows:Observation[],brand:Brand,scope:'discovery'|'branded'|'all'='discovery',protocol:string=observationProtocol) {
   const names=[...new Set([brand.name,...brand.competitors].map(v=>v.trim()).filter(Boolean))];
   const key=protocol==='text-only'?JSON.stringify(names):comparisonKey(brand);
-  const matching=rows.filter(o=>o.measurement?.quality!=='incomplete'&&o.source_kind==='model_api'&&o.model===(Object.values(observationEngines).find(e=>e.protocol===protocol)?.model??observationModel)&&(!brand.language||brand.language==='und'? !o.measurement?.cohort:o.measurement?.cohort===cohortKey(brand))&&(o.measurement?.protocol??'text-only')===protocol&&o.measurement?.comparisonKey===key&&(scope==='all'||o.measurement.scope===scope));
+  const matching=rows.filter(o=>o.brand_id===brand.id&&o.measurement?.quality!=='incomplete'&&o.source_kind==='model_api'&&o.model===(Object.values(observationEngines).find(e=>e.protocol===protocol)?.model??observationModel)&&(!brand.language||brand.language==='und'? !o.measurement?.cohort:o.measurement?.cohort===cohortKey(brand))&&(o.measurement?.protocol??'text-only')===protocol&&o.measurement?.comparisonKey===key&&(scope==='all'||o.measurement.scope===scope));
   // One latest answer per exact question: manual re-runs cannot overweight a prompt.
   const eligible=[...new Map([...matching].sort((a,b)=>a.observed_at.localeCompare(b.observed_at)).map(o=>[o.prompt,o])).values()];
   const totalMentions=eligible.reduce((sum,o)=>sum+o.measurement!.entities.reduce((n,e)=>n+e.count,0),0);
@@ -88,9 +88,11 @@ export function weeklyReport(rows:Observation[],brand:Brand,now=new Date(),proto
   const start=new Date(now.getTime()-7*86400000), previousStart=new Date(now.getTime()-14*86400000);
   const recent=rows.filter(o=>new Date(o.observed_at)>=start&&new Date(o.observed_at)<=now);
   const earlier=rows.filter(o=>new Date(o.observed_at)>=previousStart&&new Date(o.observed_at)<start);
-  // Compare only unchanged question/model pairs observed in both periods.
-  const pair=(o:Observation)=>JSON.stringify([o.prompt,o.model,o.measurement?.comparisonKey,o.measurement?.protocol??'text-only']);
-  const oldPairs=new Set(earlier.map(pair));const common=new Set(recent.filter(o=>oldPairs.has(pair(o))).map(pair));
+  // Match only eligible site/language/source/quality cohorts before comparing periods.
+  const recentEligible=summarizeObservations(recent,brand,'discovery',protocol).eligible;
+  const earlierEligible=summarizeObservations(earlier,brand,'discovery',protocol).eligible;
+  const pair=(o:Observation)=>JSON.stringify([o.brand_id,o.measurement?.cohort??null,o.source_kind,o.measurement?.quality??null,o.prompt,o.model,o.measurement?.comparisonKey,o.measurement?.protocol??'text-only']);
+  const oldPairs=new Set(earlierEligible.map(pair));const common=new Set(recentEligible.filter(o=>oldPairs.has(pair(o))).map(pair));
   const current=summarizeObservations(recent.filter(o=>common.has(pair(o))),brand,'discovery',protocol);
   const previous=summarizeObservations(earlier.filter(o=>common.has(pair(o))),brand,'discovery',protocol);
   const summary=summarizeObservations(recent,brand,'discovery',protocol);

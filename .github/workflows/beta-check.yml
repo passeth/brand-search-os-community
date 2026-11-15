@@ -45,3 +45,16 @@ jobs:
       - name: Stop local services
         if: always()
         run: supabase stop --no-backup
+  database-workflows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install local PostgreSQL test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib libpq-dev
+          command -v pg_config
+          test -x "$(pg_config --bindir)/initdb"
+      - name: Exercise fresh schema and SQL workflow regressions
+        run: bash scripts/check-migrations.sh
