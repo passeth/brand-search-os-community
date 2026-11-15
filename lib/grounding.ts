@@ -37,7 +37,7 @@ export function assertCompleteAnswer(text:string,finishReason:string) {
 
 // Search source lists and answer citation annotations are different provider evidence.
 export function parseOpenAISources(sources:readonly unknown[],content:readonly unknown[]=[]):Grounding {
- const rows=sources.flatMap((v,index)=>{const s=object(v),url=httpsURL(s.url);return s.sourceType==='url'&&url?[{index,url,title:typeof s.title==='string'?s.title:'Source',resolvedUrl:url,domain:hostname(url)}]:[];});
+ const rows=sources.flatMap(v=>{const s=object(v),url=httpsURL(s.url);return s.sourceType==='url'&&url?[{url,title:typeof s.title==='string'?s.title:'Source',resolvedUrl:url,domain:hostname(url)}]:[];}).map((s,index)=>({...s,index}));
  let known=false;const supports:CitationSupport[]=[];
  for(const part of content){const p=object(part),m=object(object(p.providerMetadata).openai);if(p.type!=='text'||!Array.isArray(m.annotations))continue;known=true;for(const raw of m.annotations){const a=object(raw);if(a.type!=='url_citation')continue;const url=httpsURL(a.url);if(!url)continue;let source=rows.find(s=>s.url===url);if(!source){source={index:rows.length,url,title:typeof a.title==='string'?a.title:'Source',resolvedUrl:url,domain:hostname(url)};rows.push(source);}supports.push({text:'',start:typeof a.start_index==='number'?a.start_index:null,end:typeof a.end_index==='number'?a.end_index:null,sourceIndices:[source.index]});}}
  return {provider:'openai',queries:[],sources:rows,supports,citationMetadata:known,searchEntryPoint:null};
