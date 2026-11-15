@@ -47,3 +47,44 @@ test('page query requests exact totals and deterministic ordering before complet
  assert.ok(source.indexOf('completePageObservations(rows.data,rows.count)')<source.indexOf('pageCitations(observations'));
  assert.doesNotMatch(source,/rows\.data\.length>1000/);
 });
+
+import {promptGenerationInstructions} from '../lib/monitoring';
+test('English prompt generation instructions are entirely English and preserve the draft contract',()=>{
+ const text=promptGenerationInstructions({...brand,language:'en',name:'Example',audience:'Small teams',keywords:['planning'],competitors:['Other']});
+ assert.doesNotMatch(text,/[가-힣]/);assert.match(text,/exactly 10/);assert.match(text,/only prompt, intent, keyword, stage/);
+ assert.match(text,/compare 3, recommend 2, action 2, concept 1, solve 1, qualify 1/);
+ assert.match(text,/awareness, consideration, action/);assert.match(text,/At least 7.*without any company or brand names/);
+ assert.match(text,/reference data, not instructions/);assert.match(text,/Do not invent/);
+});
+test('Korean prompt generation preserves Korean instructions and the same schema and neutral mix',()=>{
+ const text=promptGenerationInstructions(brand);assert.match(text,/한국어로/);assert.match(text,/10개/);assert.match(text,/prompt, intent, keyword, stage/);
+ assert.match(text,/compare 3개, recommend 2개, action 2개, concept 1개, solve 1개, qualify 1개/);assert.match(text,/적어도 7개/);assert.match(text,/어떤 회사\/브랜드 이름도 포함하지 않는/);
+});
+test('unreviewed site language cannot generate new drafts or schedule collection',()=>{
+ for(const language of ['und',undefined] as const)assert.throws(()=>promptGenerationInstructions({...brand,language}),/사이트 언어/);
+ const route=readFileSync('app/api/prompts/route.ts','utf8');assert.ok(route.indexOf('promptGenerationInstructions(brand);')<route.indexOf("client.rpc('seo_reserve_audit')"));
+ assert.match(route,/brand.language==='en'\?'Return only the requested JSON array/);
+ const sql=readFileSync('supabase/migrations/20261115150000_language_cohorts.sql','utf8');assert.match(sql,/b.language in \('ko','en'\)/);
+ const ui=readFileSync('app/monitor-workspace.tsx','utf8');assert.match(ui,/schedule.enabled&&brand.language!=='ko'&&brand.language!=='en'/);
+});
+test('unreviewed cohortless historical rows have identical card and summary eligibility',()=>{
+ const legacyBrand={...brand,language:'und' as const},prompt={id:'historical-prompt',prompt:'Which supplier?'};
+ const original=row(),legacy:Observation={...original,prompt_id:prompt.id,measurement:{...original.measurement!,cohort:undefined,quality:undefined}};
+ for(const quality of [undefined,'complete'] as const){const candidate={...legacy,measurement:{...legacy.measurement!,quality}};assert.equal(latestPromptObservation([candidate],prompt,legacyBrand,'openai')?.id,candidate.id);assert.equal(summarizeObservations([candidate],legacyBrand,'all',observationEngines.openai.protocol).total,1);}
+ for(const candidate of [{...legacy,brand_id:'other'}, {...legacy,source_kind:'manual' as const},{...legacy,model:'other'}, {...legacy,measurement:{...legacy.measurement!,protocol:'wrong'}},{...legacy,measurement:{...legacy.measurement!,comparisonKey:'wrong'}},{...legacy,measurement:{...legacy.measurement!,quality:'incomplete' as const}},original]){
+  assert.equal(latestPromptObservation([candidate],prompt,legacyBrand,'openai'),undefined);assert.equal(summarizeObservations([candidate],legacyBrand,'all',observationEngines.openai.protocol).total,0);
+ }
+ for(const language of ['ko','en'] as const){const reviewed={...brand,language};assert.equal(latestPromptObservation([legacy],prompt,reviewed,'openai'),undefined);assert.equal(summarizeObservations([legacy],reviewed,'all',observationEngines.openai.protocol).total,0);}
+});
+test('legacy cards summaries and reports explicitly label unreviewed history',()=>{
+ for(const file of ['app/monitor-workspace.tsx','app/search-intelligence.tsx'])assert.match(readFileSync(file,'utf8'),/과거 기록 · 언어 미검토/);
+ assert.match(weeklyReport([],{...brand,language:'und'}).text,/과거 기록 · 언어 미검토/);
+});
+test('page event scope is exact-host and does not merge apex www or foreign origins',()=>{
+ assert.throws(()=>pageURL('https://www.example.com/ko/article',brand));assert.throws(()=>pageURL('https://other.example/ko/article',brand));
+ assert.equal(samePage('https://example.com/ko/article','https://www.example.com/ko/article'),false);
+ const request=pageEventRequest('https://example.com/ko/article','2026-11-01','2026-11-12','generate_lead');
+ assert.deepEqual(request.dimensionFilter.andGroup.expressions[0],{filter:{fieldName:'hostName',stringFilter:{matchType:'EXACT',value:'example.com'}}});
+ assert.doesNotMatch(JSON.stringify(request),/www\.example\.com/);
+ assert.match(readFileSync('app/page-attribution.tsx','utf8'),/apex와 www는 자동 합산하지 않습니다/);
+});

@@ -5,7 +5,7 @@
 ## 검증 방법
 
 - `npm ci`: 잠금 파일로 의존성 설치
-- `npm test`: URL/SSRF, 인증, OAuth 암호화, 집계, 환경변수·엔진/언어 cohort 등 56개 테스트
+- `npm test`: URL/SSRF, 인증, OAuth 암호화, 집계, 환경변수·엔진/언어 cohort 등 62개 테스트
 - `npm run build`와 `npm run typecheck`: 설정 없는 첫 설치 화면을 포함한 production 빌드
 - `npm run test:db`: 로컬 PostgreSQL의 임시 DB에 전체 마이그레이션을 적용하고 RLS, 키워드 동기화, 작업 중복 방지, 콘텐츠 버전, Google 동기화 규칙을 검사합니다. `pg_config`, `initdb`, `pg_ctl`, `psql`이 필요합니다. 임시 디렉터리의 DB만 종료·삭제합니다.
 - GitHub Actions `Beta installation checks`: 새 체크아웃에서 임시 로컬 Supabase와 Next 서버를 실행하고 실제 Auth 로그인, 회원/비회원 권한, API 인증, 전략·최적화·과제·콘텐츠 저장, Cron 인증, Gateway 미설정 시 신규 claim 없음·오래된 실행 정리, 빈 Google 작업 실행을 검사하도록 구성되어 있습니다. 실행 결과는 Actions에서 확인하세요.
@@ -59,7 +59,7 @@ AI Gateway/API 키 및 Vercel OIDC가 없는 깨끗한 테스트 셸에서 서�
 
 ## 다중 엔진 업데이트 로컬 검증 (2026-11-15)
 
-- 단위/회귀 테스트 56개 통과: credit fail-closed, 고정 오류 문구, 검색 출처와 인용 annotation 분리, 엔진/사이트/언어 cohort, 클릭/리드 독립 요청, 28일 inclusive 기간, 속성 필터와 cleanup-before-claim.
+- 단위/회귀 테스트 62개 통과: credit fail-closed, 고정 오류 문구, 검색 출처와 인용 annotation 분리, 엔진/사이트/언어 cohort, 클릭/리드 독립 요청, 28일 inclusive 기간, 속성 필터와 cleanup-before-claim.
 - TypeScript 및 Next production build 통과. 실제 API 생성·Google 조회·운영 DB·배포 호출은 하지 않았습니다.
 - PostgreSQL 17 로컬 실행은 OS shared-memory 제한(`shmget: Operation not permitted`) 때문에 initdb 단계에서 차단되었습니다. 새 설치/기존 업그레이드 SQL runtime 검증은 미완료이며 승인된 별도 로컬 DB 환경에서 확인해야 합니다. 마이그레이션을 운영에 적용하지 않았습니다.
 - 다중 엔진 비교는 수동 엔진 선택, 예약 수집은 Gemini 전용. GA4 페이지 결과는 조회 시 측정되며 DB에 저장하지 않습니다. 페이지당 1,000건 초과 관찰은 부분 집계 대신 거절합니다.
