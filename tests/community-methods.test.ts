@@ -26,3 +26,24 @@ test('weekly pairing excludes other languages before finding common prompts',()=
 test('scheduler filters language before LIMIT and integration smoke expects fail-closed',()=>{const sql=readFileSync('supabase/migrations/20261115150000_language_cohorts.sql','utf8');assert.match(sql,/q\.active and q\.language=b\.language order by[^\n]+limit s\.prompt_limit/);const smoke=readFileSync('scripts/local-smoke.ts','utf8');assert.match(smoke,/assert.equal\(monitor.status,503/);assert.match(smoke,/assert.equal\(result.claimed,0\)/);assert.match(smoke,/jobsAfter.map\(r=>r.id\).sort\(\),jobsBefore.map/);const fixture=readFileSync('tests/workflows.sql','utf8');assert.doesNotMatch(fixture,/do \$(?!\$)|end\$(?!\$);/);assert.match(fixture,/Eligible prompt starved/);});
 
 test('page attribution remounts on site, origin, path or language cohort change',()=>{const panel=readFileSync('app/google-panel.tsx','utf8');assert.match(panel,/<PageAttribution key=\{cohortKey\(brand\)\} brand=\{brand\}/);for(const changed of [{...brand,id:'other-site'},{...brand,domain:'https://other.example/ko/'},{...brand,domain:'https://example.com/en/'},{...brand,language:'en' as const}])assert.notEqual(cohortKey(changed),cohortKey(brand));});
+
+import {completePageObservations} from '../lib/page-attribution';
+test('page attribution rejects server-truncated responses despite a successful query',()=>{
+ const capped=Array.from({length:1000},(_,id)=>({id}));
+ assert.throws(()=>completePageObservations(capped,1001),/1,000행 초과/);
+ assert.throws(()=>completePageObservations(capped.slice(0,999),1000),/누락/);
+ assert.throws(()=>completePageObservations(capped,999),/누락/);
+ assert.equal(completePageObservations(capped,1000),capped);
+ assert.deepEqual(completePageObservations([],0),[]);
+});
+test('page attribution requires a known valid exact count and actual rows',()=>{
+ for(const count of [undefined,null,NaN,Infinity,-1,0.5,'1000',true,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>completePageObservations([],count),/건수/);
+ assert.throws(()=>completePageObservations(null,0),/누락/);
+});
+test('page query requests exact totals and deterministic ordering before completeness validation',()=>{
+ const source=readFileSync('app/page-attribution.tsx','utf8');
+ assert.match(source,/select\('\*',\{count:'exact'\}\)/);
+ assert.match(source,/order\('observed_at',\{ascending:false\}\)\.order\('id',\{ascending:false\}\)\.limit\(1000\)/);
+ assert.ok(source.indexOf('completePageObservations(rows.data,rows.count)')<source.indexOf('pageCitations(observations'));
+ assert.doesNotMatch(source,/rows\.data\.length>1000/);
+});
