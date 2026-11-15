@@ -64,7 +64,7 @@
 
 1. GitHub의 **Use this template** 또는 **Fork**로 본인 저장소를 만듭니다.
 2. 본인 저장소를 내려받고 Node.js 24를 준비합니다.
-3. 새 Supabase 프로젝트에 `supabase/migrations/`의 SQL 001~008을 순서대로 실행합니다.
+3. 새 Supabase 프로젝트에 `supabase/migrations/`의 모든 SQL을 파일명 오름차순으로 실행합니다.
 4. Supabase Auth에서 이메일·비밀번호 사용자를 만들고 `seo_members`에 해당 사용자 UUID를 등록합니다.
 5. 아래 명령으로 실행하고 이메일로 로그인합니다. 자세한 값은 [설치 가이드](docs/SETUP.md)를 따르세요.
 
@@ -93,7 +93,7 @@ npm run dev
 | 근거 | 페르소나·자료실·Raw 데이터: 작성 기준, 승인 자료, 응답 원문 |
 | 운영 | 브랜드 관리·운영 방법 |
 
-정적 크롤링, Gemini API의 Google 검색 도구, GSC와 GA4를 사용합니다. 소비자용 ChatGPT·Perplexity 화면을 자동 수집하지 않습니다. 별도 SERP 공급자 기반 검색 순위·검색량·Google AI Overview 추적, JS 렌더링 크롤링, Core Web Vitals 측정, 자동 홈페이지 게시·이메일 발송은 제공하지 않습니다.
+정적 크롤링, Gemini API의 Google 검색 도구, OpenAI GPT API의 웹 검색, GSC와 GA4를 사용합니다. 엔진·사이트·언어 cohort와 페이지 인용/문의 이벤트를 분리합니다. 신규 설치와 기존 업그레이드는 [설치 가이드](docs/SETUP.md)의 다중 엔진 절차를 확인하세요. 소비자용 ChatGPT·Perplexity 화면을 자동 수집하지 않습니다. 별도 SERP 공급자 기반 검색 순위·검색량·Google AI Overview 추적, JS 렌더링 크롤링, Core Web Vitals 측정, 자동 홈페이지 게시·이메일 발송은 제공하지 않습니다.
 
 ## 개발·검증
 

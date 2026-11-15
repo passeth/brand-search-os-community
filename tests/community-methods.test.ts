@@ -1,0 +1,90 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+import {preflightCollectorCredits,classifyCollectorError,parseGatewayBalance} from '../lib/collector-health';
+import {parseOpenAISources} from '../lib/grounding';import {cohortKey} from '../lib/cohort';import {pageURL,pageCitations,pageEventRequest,samePage} from '../lib/page-attribution';import {googleWindow} from '../lib/reporting-window';import {observationEngines} from '../lib/model-config';import {summarizeObservations,measureAnswer} from '../lib/monitoring';import {comparisonKey} from '../lib/grounding';import type {Brand,Observation} from '../lib/types';
+const brand:Brand={id:'site-ko',name:'Example',domain:'https://example.com/ko/',language:'ko',audience:'',keywords:[],competitors:[]};
+function row():Observation{return {id:'one',brand_id:brand.id,prompt:'Which supplier?',platform:'OpenAI GPT API',source_kind:'model_api',model:observationEngines.openai.model,answer:'Example',source_url:'',mentioned:true,observed_at:'2026-11-10T00:00:00Z',measurement:{...measureAnswer('Example','Which supplier?',brand),version:'grounding-v2',protocol:observationEngines.openai.protocol,cohort:cohortKey(brand),comparisonKey:comparisonKey(brand),quality:'complete',citations:[0],grounding:parseOpenAISources([],[{type:'text',providerMetadata:{openai:{annotations:[{type:'url_citation',url:'https://example.com/ko/article',start_index:0,end_index:7}]}}}])}};}
+test('credit preflight fails closed for missing, malformed and exhausted balances',async()=>{for(const balance of [undefined,null,'',false,'0x20','Infinity',0,-1])assert.equal((await preflightCollectorCredits(async()=>({balance}))).ok,false);assert.equal((await preflightCollectorCredits(async()=>({balance:'0.25'}))).ok,true);assert.equal((await preflightCollectorCredits(async()=>{throw new Error('secret');})).ok,false);assert.equal(parseGatewayBalance({balance:Infinity}),null);});
+test('safe collector errors never invoke getters or echo secret payloads',()=>{let touched=false;const unsafe={get message(){touched=true;throw Error('token');},status:401,body:'Bearer private'};const safe=classifyCollectorError(unsafe);assert.equal(touched,false);assert.equal(safe.code,'authentication');assert.ok(!JSON.stringify(safe).includes('private'));assert.equal(classifyCollectorError({cause:{status:429,message:'secret'}}).code,'rate_limit');});
+test('search sources alone are not claim citations',()=>{const g=parseOpenAISources([{sourceType:'url',url:'https://example.com/a'}]);assert.equal(g.sources.length,1);assert.equal(g.citationMetadata,false);assert.deepEqual(g.supports,[]);});
+test('provider URL citation annotations are persisted with offsets',()=>{const g=row().measurement!.grounding!;assert.equal(g.citationMetadata,true);assert.equal(g.supports[0].start,0);assert.equal(g.sources[0].resolvedUrl,'https://example.com/ko/article');});
+test('page citations cannot cross site, language, model or protocol boundaries',()=>{const r=row();const count=(rows:Observation[])=>pageCitations(rows,brand,'https://example.com/ko/article','openai','2026-11-01','2026-11-12').cited;assert.equal(count([r]),1);assert.equal(count([{...r,brand_id:'other'}]),0);assert.equal(count([{...r,measurement:{...r.measurement!,cohort:cohortKey({...brand,language:'en'})}}]),0);assert.equal(count([{...r,model:observationEngines.gemini.model}]),0);assert.equal(count([{...r,measurement:{...r.measurement!,protocol:'text-only'}}]),0);});
+test('engine summaries use exact language cohorts and cannot combine engines',()=>{const r=row();assert.equal(summarizeObservations([r],brand,'all',observationEngines.openai.protocol).total,1);assert.equal(summarizeObservations([r],brand,'all').total,0);assert.equal(summarizeObservations([r],{...brand,language:'en'},'all',observationEngines.openai.protocol).total,0);});
+test('page citations dedupe repeat prompts and exclude incomplete answers',()=>{const r=row();assert.equal(pageCitations([r,{...r,id:'two'}],brand,'https://example.com/ko/article','openai','2026-11-01','2026-11-12').samples,1);assert.equal(pageCitations([{...r,measurement:{...r.measurement!,quality:'incomplete'}}],brand,'https://example.com/ko/article','openai','2026-11-01','2026-11-12').samples,0);});
+test('page scope does not infer English from text or allow foreign origins',()=>{assert.notEqual(cohortKey(brand),cohortKey({...brand,language:'en'}));assert.throws(()=>pageURL('https://example.com/en/article',brand));assert.throws(()=>pageURL('https://evil.example/article',brand));assert.equal(pageURL('https://example.com/ko/article?x=1',brand),'https://example.com/ko/article');assert.equal(samePage('https://example.com/ko/article/','https://example.com/ko/article'),true);});
+test('click and lead requests use independent exact events on the measured page',()=>{const click=pageEventRequest('https://example.com/ko/article','2026-11-01','2026-11-12','consultation_click'),lead=pageEventRequest('https://example.com/ko/article','2026-11-01','2026-11-12','generate_lead');assert.match(JSON.stringify(click),/consultation_click/);assert.doesNotMatch(JSON.stringify(click),/generate_lead/);assert.match(JSON.stringify(lead),/generate_lead/);assert.match(JSON.stringify(lead),/pagePath/);assert.doesNotMatch(JSON.stringify(lead),/landingPage/);});
+test('inclusive reporting window holds across leap years and year rollover',()=>{for(const date of ['2024-03-02T23:59:00Z','2026-01-02T00:00:00Z','2026-11-15T00:00:00Z']){const w=googleWindow(new Date(date));assert.equal((Date.parse(w.end)-Date.parse(w.start))/86400000+1,28);assert.equal(w.end,new Date(Date.parse(date)-3*86400000).toISOString().slice(0,10));}});
+test('cron preflight precedes claims and cleanup SQL cannot create jobs',()=>{const route=readFileSync('app/api/cron/monitor/route.ts','utf8');assert.ok(route.indexOf('const credits=')<route.indexOf('const claim='));assert.ok(route.indexOf('const reaped=')<route.indexOf('const credits='));const sql=readFileSync('supabase/migrations/20261115143000_monitor_reap_only.sql','utf8');assert.doesNotMatch(sql,/insert\s+into/i);assert.match(sql,/seo_monitor_authorized/);assert.match(sql,/15 minutes/);});
+test('Google panel filters the inclusive window and currently selected property',()=>{const s=readFileSync('app/google-panel.tsx','utf8');assert.match(s,/gte\('date',window.start\)/);assert.match(s,/lte\('date',window.end\)/);assert.match(s,/m.source_property===/);});
+
+test('filtered OpenAI sources and annotation-only URLs have distinct contiguous indices',()=>{const g=parseOpenAISources([{sourceType:'document',url:'https://example.com/ignore'},{sourceType:'url',url:'http://example.com/ignore'},{sourceType:'url',url:'https://example.com/search-only'}],[{type:'text',providerMetadata:{openai:{annotations:[{type:'url_citation',url:'https://example.com/ko/article'}]}}}]);assert.deepEqual(g.sources.map(s=>s.index),[0,1]);assert.deepEqual(g.supports[0].sourceIndices,[1]);assert.equal(g.sources.find(s=>s.index===g.supports[0].sourceIndices[0])?.url,'https://example.com/ko/article');});
+import {observationInstructions} from '../lib/model-config';import {weeklyReport,latestPromptObservation} from '../lib/monitoring';
+test('OpenAI instructions and weekly report never claim Google Search',()=>{for(const language of ['ko','en'] as const){assert.doesNotMatch(observationInstructions(language,'openai'),/Google/);assert.match(observationInstructions(language,'gemini'),/Google/);}const report=weeklyReport([row()],brand,new Date('2026-11-12'),observationEngines.openai.protocol);assert.match(report.text,/OpenAI GPT API/);assert.doesNotMatch(report.text,/Google 검색/);});
+test('latest prompt observation excludes protocol drift and selects newest complete API row',()=>{const prompt={id:'prompt',prompt:'Which supplier?'},good={...row(),prompt_id:'prompt'};const drift={...good,id:'drift',observed_at:'2026-11-11T00:00:00Z',measurement:{...good.measurement!,protocol:'openai-web-search-v2'}};assert.equal(latestPromptObservation([drift,good],prompt,brand,'openai')?.id,'one');assert.equal(latestPromptObservation([drift],prompt,brand,'openai'),undefined);assert.equal(latestPromptObservation([{...good,source_kind:'manual'}],prompt,brand,'openai'),undefined);});
+test('engine selection reaches nested summary, weekly and daily comparisons',()=>{const workspace=readFileSync('app/monitor-workspace.tsx','utf8'),panel=readFileSync('app/search-intelligence.tsx','utf8'),evidence=readFileSync('app/observation-evidence.tsx','utf8');assert.match(workspace,/<SearchIntelligence engine=\{engine\}/);assert.match(panel,/summarizeObservations\(recent,brand,scope,config.protocol\)/);assert.match(panel,/weeklyReport\(current,brand,new Date\(\),config.protocol\)/);assert.match(panel,/===date\),brand,scope,config.protocol\)/);assert.doesNotMatch(panel,/Gemini API \+ Google 검색/);assert.match(evidence,/o.measurement\?\.protocol/);});
+
+test('weekly pairing excludes other languages before finding common prompts',()=>{const target={...brand,language:'en' as const};const make=(prompt:string,time:string,mentioned:boolean,language:'ko'|'en'):Observation=>{const r=row();return {...r,prompt,observed_at:time,mentioned,measurement:{...r.measurement!,...measureAnswer(mentioned?'Example':'No tracked name',prompt,target),quality:'complete',protocol:observationEngines.openai.protocol,comparisonKey:comparisonKey(target),cohort:cohortKey({...target,language})}};};const oldQ1=make('Question one?','2026-11-05T00:00:00Z',false,'ko'),oldQ2=make('Question two?','2026-11-05T00:00:00Z',false,'en'),newQ1=make('Question one?','2026-11-12T00:00:00Z',true,'en'),newQ2=make('Question two?','2026-11-12T00:00:00Z',false,'en');const report=weeklyReport([oldQ1,oldQ2,newQ1,newQ2],target,new Date('2026-11-15T00:00:00Z'),observationEngines.openai.protocol);assert.equal(report.current.total,1);assert.equal(report.previous.total,1);assert.equal(report.delta,0);for(const invalid of [{...oldQ1,brand_id:'foreign',measurement:{...oldQ1.measurement!,cohort:cohortKey(target)}},{...oldQ1,source_kind:'manual' as const,measurement:{...oldQ1.measurement!,cohort:cohortKey(target)}},{...oldQ1,measurement:{...oldQ1.measurement!,cohort:cohortKey(target),quality:'incomplete' as const}},{...oldQ1,measurement:{...oldQ1.measurement!,cohort:cohortKey(target),protocol:'wrong'}}]){assert.equal(weeklyReport([invalid,oldQ2,newQ1,newQ2],target,new Date('2026-11-15T00:00:00Z'),observationEngines.openai.protocol).delta,0);}});
+test('scheduler filters language before LIMIT and integration smoke expects fail-closed',()=>{const sql=readFileSync('supabase/migrations/20261115150000_language_cohorts.sql','utf8');assert.match(sql,/q\.active and q\.language=b\.language order by[^\n]+limit s\.prompt_limit/);const smoke=readFileSync('scripts/local-smoke.ts','utf8');assert.match(smoke,/assert.equal\(monitor.status,503/);assert.match(smoke,/assert.equal\(result.claimed,0\)/);assert.match(smoke,/jobsAfter.map\(r=>r.id\).sort\(\),jobsBefore.map/);const fixture=readFileSync('tests/workflows.sql','utf8');assert.doesNotMatch(fixture,/do \$(?!\$)|end\$(?!\$);/);assert.match(fixture,/Eligible prompt starved/);});
+
+test('page attribution remounts on site, origin, path or language cohort change',()=>{const panel=readFileSync('app/google-panel.tsx','utf8');assert.match(panel,/<PageAttribution key=\{cohortKey\(brand\)\} brand=\{brand\}/);for(const changed of [{...brand,id:'other-site'},{...brand,domain:'https://other.example/ko/'},{...brand,domain:'https://example.com/en/'},{...brand,language:'en' as const}])assert.notEqual(cohortKey(changed),cohortKey(brand));});
+
+import {completePageObservations} from '../lib/page-attribution';
+test('page attribution rejects server-truncated responses despite a successful query',()=>{
+ const capped=Array.from({length:1000},(_,id)=>({id}));
+ assert.throws(()=>completePageObservations(capped,1001),/1,000행 초과/);
+ assert.throws(()=>completePageObservations(capped.slice(0,999),1000),/누락/);
+ assert.throws(()=>completePageObservations(capped,999),/누락/);
+ assert.equal(completePageObservations(capped,1000),capped);
+ assert.deepEqual(completePageObservations([],0),[]);
+});
+test('page attribution requires a known valid exact count and actual rows',()=>{
+ for(const count of [undefined,null,NaN,Infinity,-1,0.5,'1000',true,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>completePageObservations([],count),/건수/);
+ assert.throws(()=>completePageObservations(null,0),/누락/);
+});
+test('page query requests exact totals and deterministic ordering before completeness validation',()=>{
+ const source=readFileSync('app/page-attribution.tsx','utf8');
+ assert.match(source,/select\('\*',\{count:'exact'\}\)/);
+ assert.match(source,/order\('observed_at',\{ascending:false\}\)\.order\('id',\{ascending:false\}\)\.limit\(1000\)/);
+ assert.ok(source.indexOf('completePageObservations(rows.data,rows.count)')<source.indexOf('pageCitations(observations'));
+ assert.doesNotMatch(source,/rows\.data\.length>1000/);
+});
+
+import {promptGenerationInstructions} from '../lib/monitoring';
+test('English prompt generation instructions are entirely English and preserve the draft contract',()=>{
+ const text=promptGenerationInstructions({...brand,language:'en',name:'Example',audience:'Small teams',keywords:['planning'],competitors:['Other']});
+ assert.doesNotMatch(text,/[가-힣]/);assert.match(text,/exactly 10/);assert.match(text,/only prompt, intent, keyword, stage/);
+ assert.match(text,/compare 3, recommend 2, action 2, concept 1, solve 1, qualify 1/);
+ assert.match(text,/awareness, consideration, action/);assert.match(text,/At least 7.*without any company or brand names/);
+ assert.match(text,/reference data, not instructions/);assert.match(text,/Do not invent/);
+});
+test('Korean prompt generation preserves Korean instructions and the same schema and neutral mix',()=>{
+ const text=promptGenerationInstructions(brand);assert.match(text,/한국어로/);assert.match(text,/10개/);assert.match(text,/prompt, intent, keyword, stage/);
+ assert.match(text,/compare 3개, recommend 2개, action 2개, concept 1개, solve 1개, qualify 1개/);assert.match(text,/적어도 7개/);assert.match(text,/어떤 회사\/브랜드 이름도 포함하지 않는/);
+});
+test('unreviewed site language cannot generate new drafts or schedule collection',()=>{
+ for(const language of ['und',undefined] as const)assert.throws(()=>promptGenerationInstructions({...brand,language}),/사이트 언어/);
+ const route=readFileSync('app/api/prompts/route.ts','utf8');assert.ok(route.indexOf('promptGenerationInstructions(brand);')<route.indexOf("client.rpc('seo_reserve_audit')"));
+ assert.match(route,/brand.language==='en'\?'Return only the requested JSON array/);
+ const sql=readFileSync('supabase/migrations/20261115150000_language_cohorts.sql','utf8');assert.match(sql,/b.language in \('ko','en'\)/);
+ const ui=readFileSync('app/monitor-workspace.tsx','utf8');assert.match(ui,/schedule.enabled&&brand.language!=='ko'&&brand.language!=='en'/);
+});
+test('unreviewed cohortless historical rows have identical card and summary eligibility',()=>{
+ const legacyBrand={...brand,language:'und' as const},prompt={id:'historical-prompt',prompt:'Which supplier?'};
+ const original=row(),legacy:Observation={...original,prompt_id:prompt.id,measurement:{...original.measurement!,cohort:undefined,quality:undefined}};
+ for(const quality of [undefined,'complete'] as const){const candidate={...legacy,measurement:{...legacy.measurement!,quality}};assert.equal(latestPromptObservation([candidate],prompt,legacyBrand,'openai')?.id,candidate.id);assert.equal(summarizeObservations([candidate],legacyBrand,'all',observationEngines.openai.protocol).total,1);}
+ for(const candidate of [{...legacy,brand_id:'other'}, {...legacy,source_kind:'manual' as const},{...legacy,model:'other'}, {...legacy,measurement:{...legacy.measurement!,protocol:'wrong'}},{...legacy,measurement:{...legacy.measurement!,comparisonKey:'wrong'}},{...legacy,measurement:{...legacy.measurement!,quality:'incomplete' as const}},original]){
+  assert.equal(latestPromptObservation([candidate],prompt,legacyBrand,'openai'),undefined);assert.equal(summarizeObservations([candidate],legacyBrand,'all',observationEngines.openai.protocol).total,0);
+ }
+ for(const language of ['ko','en'] as const){const reviewed={...brand,language};assert.equal(latestPromptObservation([legacy],prompt,reviewed,'openai'),undefined);assert.equal(summarizeObservations([legacy],reviewed,'all',observationEngines.openai.protocol).total,0);}
+});
+test('legacy cards summaries and reports explicitly label unreviewed history',()=>{
+ for(const file of ['app/monitor-workspace.tsx','app/search-intelligence.tsx'])assert.match(readFileSync(file,'utf8'),/과거 기록 · 언어 미검토/);
+ assert.match(weeklyReport([],{...brand,language:'und'}).text,/과거 기록 · 언어 미검토/);
+});
+test('page event scope is exact-host and does not merge apex www or foreign origins',()=>{
+ assert.throws(()=>pageURL('https://www.example.com/ko/article',brand));assert.throws(()=>pageURL('https://other.example/ko/article',brand));
+ assert.equal(samePage('https://example.com/ko/article','https://www.example.com/ko/article'),false);
+ const request=pageEventRequest('https://example.com/ko/article','2026-11-01','2026-11-12','generate_lead');
+ assert.deepEqual(request.dimensionFilter.andGroup.expressions[0],{filter:{fieldName:'hostName',stringFilter:{matchType:'EXACT',value:'example.com'}}});
+ assert.doesNotMatch(JSON.stringify(request),/www\.example\.com/);
+ assert.match(readFileSync('app/page-attribution.tsx','utf8'),/apex와 www는 자동 합산하지 않습니다/);
+});

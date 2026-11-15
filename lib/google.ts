@@ -1,3 +1,4 @@
+import {pageEventRequest,eventCount} from './page-attribution';
 import {createCipheriv,createDecipheriv,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {db} from './supabase';
 import {ga4MatchesBrand,gscMatchesBrand} from './google-domain';
@@ -24,7 +25,8 @@ export async function listGoogleProperties(access:string,scopes:string[]){const 
  if(scopes.includes(googleScopes[1])){try{let next='';let pages=0;do{const r=await googleAPI('https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200'+(next?'&pageToken='+encodeURIComponent(next):''),access);for(const a of r.accountSummaries||[])for(const p of a.propertySummaries||[])properties.push({...p,account:a.displayName});next=r.nextPageToken||'';if(++pages>10)throw new Error('계정 목록이 10페이지를 초과했습니다.');}while(next);}catch(e){errors.push('GA4 '+(e as Error).message);}}
  return {sites,properties,errors};
 }
-export function googleWindow(now=new Date()){const end=new Date(now.getTime()-3*86400000),start=new Date(end.getTime()-27*86400000);return {start:start.toISOString().slice(0,10),end:end.toISOString().slice(0,10)};}
+export {googleWindow} from './reporting-window';
+import {googleWindow} from './reporting-window';
 export async function ga4Streams(access:string,property:string){
  return (await ga4WebStreams(access,property)).map(s=>s.url);
 }
@@ -52,3 +54,5 @@ export async function syncGoogle(brandId:string){const {connection:c,access}=awa
  if(c.ga4_property){try{if(!c.brand_domain)throw new Error('브랜드 도메인 확인이 필요합니다.');if(!ga4MatchesBrand(await ga4Streams(access,c.ga4_property),c.brand_domain))throw new Error('GA4 웹 스트림 도메인이 브랜드와 다릅니다.');if(!/^properties\/\d+$/.test(c.ga4_property))throw new Error('GA4 속성 형식 오류');const names=['sessions','activeUsers','screenPageViews','keyEvents'];const result=await googleAPI(`https://analyticsdata.googleapis.com/v1beta/${c.ga4_property}:runReport`,access,{dateRanges:[{startDate:start,endDate:end}],dimensions:[{name:'date'}],dimensionFilter:{filter:{fieldName:'hostName',inListFilter:{values:[hostname(c.brand_domain),'www.'+hostname(c.brand_domain)]}}},metrics:names.map(name=>({name})),limit:100,keepEmptyRows:true});const rows=(result.rows||[]).map((r:{dimensionValues:{value:string}[];metricValues:{value:string}[]})=>({grain:'daily',date:r.dimensionValues[0].value.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'),dimension:'',metrics:Object.fromEntries(names.map((n,i)=>[n,Number(r.metricValues[i]?.value||0)]))}));await worker('metrics',brandId,{provider:'ga4',start,end,property:c.ga4_property,rows});counts.ga4=rows.length;}catch(e){errors.push('GA4: '+(e as Error).message);}}
  await worker('status',brandId,{error:errors.join(' / ')});return {counts,errors,start,end};
 }
+
+export async function pageOutcomes(brandId:string,url:string){const {connection:c,access}=await googleAccess(brandId);const {start,end}=googleWindow();if(!c.ga4_property||!c.brand_domain||!ga4MatchesBrand([url],c.brand_domain)||!ga4MatchesBrand(await ga4Streams(access,c.ga4_property),c.brand_domain))throw new Error('페이지와 GA4 속성 도메인을 확인하세요.');const results=await Promise.all((['consultation_click','generate_lead'] as const).map(async event=>{try{return {event,count:eventCount(await googleAPI('https://analyticsdata.googleapis.com/v1beta/'+c.ga4_property+':runReport',access,pageEventRequest(url,start,end,event))),error:null};}catch{return {event,count:null,error:'GA4 이벤트 수집 실패'};}}));const current=await worker('read',brandId) as GoogleConnection|null;if(current?.ga4_property!==c.ga4_property||current?.brand_domain!==c.brand_domain)throw new Error('연결이 변경되었습니다.');return {source:'GA4 Data API',property:c.ga4_property,start,end,checkedAt:new Date().toISOString(),results};}
